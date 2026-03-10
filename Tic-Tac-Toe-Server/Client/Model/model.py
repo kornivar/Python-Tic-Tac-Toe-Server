@@ -1,8 +1,8 @@
 import socket
 import threading
 import time
-import queue
 import json
+
 
 class Model:
     def __init__(self, ip, port, queue):
@@ -10,7 +10,7 @@ class Model:
         self.port = port
         self.queue = queue
 
-        self.verified = False
+        self.my_id = None
         self.running = False
 
         self.client = None
@@ -24,7 +24,6 @@ class Model:
         while self.running:
             try:
                 data = self.client.recv(1024)
-
                 if not data:
                     break
 
@@ -32,128 +31,103 @@ class Model:
 
                 while "\n" in buffer:
                     message, buffer = buffer.split("\n", 1)
-
                     packet = json.loads(message)
 
-                    p_type = packet["type"]
-                    p_data = packet["data"]
+                    p_type = packet.get("type")
+                    p_data = packet.get("data")
 
-                    if p_type == "message":
-                        if p_data == "stop":
-                            self.running = False
-                        else:
-                            self.queue.put(p_data)
+                    if p_type == "init":
+                        # Server sends initial ID and board
+                        self.my_id = p_data["your_id"]
+                        self.queue.put({"type": "init", "data": p_data})
 
-                    elif p_type == "response":
-                        self.verified = p_data
+                    elif p_type == "update":
+                        # Server sends board update, next turn, and winner status
+                        self.queue.put({"type": "update", "data": p_data})
+
+                    elif p_type == "game_ready":
+                        self.queue.put({"type": "game_ready", "data": p_data})
+
+                    elif p_type == "error":
+                        # Server reports invalid move
+                        self.queue.put({"type": "error", "message": packet.get("message")})
 
             except Exception as e:
-                print("Receive error:", e)
+                print(f"Receive error: {e}")
                 break
 
         self.running = False
-        self.client.close()
+        try:
+            self.client.close()
+        except:
+            pass
 
 
-    def send(self, message):
+    def send_move(self, row, col):
+        # Send a move coordinates to the server
         if not self.running:
             return
 
-        packet = self.to_packet(message)
+        move_payload = {
+            "row": row,
+            "col": col
+        }
 
-        if packet:
-            self.client.sendall((packet + "\n").encode())
-
-        if message == "stop":
-            self.running = False
+        packet = self.to_packet(move_payload, "move")
+        self.client.sendall((packet + "\n").encode())
 
 
     @staticmethod
-    def to_packet(data, d_type ="message"):
-        if  d_type == "login":
-            packet = {
-                "type": "login",
-                "data": data
-            }
-            return json.dumps(packet)
-        elif d_type == "signup":
-            packet = {
-                "type": "signup",
-                "data": data
-            }
-            return json.dumps(packet)
-        elif  d_type == "message":
-            packet = {
-                "type": "message",
-                "data": data
-            }
-            return json.dumps(packet)
+    def to_packet(data, d_type="move"):
+        # Wrap data into a standardized JSON packet string
+        packet = {
+            "type": d_type,
+            "data": data
+        }
+        return json.dumps(packet)
 
-        return None
-
-
-    def verification(self, username, password, action):
-        if self.client:
-            if action == "login":
-                data = {
-                    "username": username,
-                    "password": password,
-                }
-                packet = self.to_packet(data, "login")
-                self.client.sendall((packet + '\n').encode())
-
-            elif action == "signup":
-                data = {
-                    "username": username,
-                    "password": password,
-                }
-                packet = self.to_packet(data, "signup")
-                self.client.sendall((packet + '\n').encode())
 
     def is_connected(self):
-        if not self.connect_thread.is_alive():
+        # Check if the connection thread has finished
+        if self.connect_thread and not self.connect_thread.is_alive():
             return True
-        else:
-            return False
+        return False
 
 
     def connect(self):
-        while True:
+        # Attempt to establish connection
+        while self.running:
             try:
                 self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.client.connect((self.ip, self.port))
+                print(f"Connected to {self.ip}:{self.port}")
                 break
             except (ConnectionRefusedError, socket.timeout, OSError):
                 if self.client:
                     self.client.close()
                 time.sleep(1)
 
-        self.receive_thread = threading.Thread(
-            target=self.receive,
-            daemon=False
-        )
-        self.receive_thread.start()
+        if self.running:
+            self.receive_thread = threading.Thread(
+                target=self.receive,
+                daemon=True
+            )
+            self.receive_thread.start()
 
 
     def start(self):
         self.running = True
-
         self.connect_thread = threading.Thread(
             target=self.connect,
-            daemon=False
+            daemon=True
         )
         self.connect_thread.start()
 
 
     def stop(self):
         self.running = False
-
         try:
             self.client.close()
         except:
             pass
-
-        if self.receive_thread:
-            self.receive_thread.join()
-
-        print(f"Client stopped")
+        print("Client stopped")

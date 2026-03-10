@@ -1,6 +1,8 @@
 import socket
 import json
 import threading
+import time
+
 from Server.ClientData import ClientData
 
 HOST = '127.0.0.1'
@@ -77,7 +79,8 @@ def handle_client(client_data):
     my_id = client_data.id
     buffer = ""
 
-    # Send initial connection packet
+    print(f"Handler started for Player {my_id}")
+
     init_packet = {
         "type": "init",
         "data": {
@@ -86,31 +89,33 @@ def handle_client(client_data):
         }
     }
     conn.sendall((json.dumps(init_packet) + '\n').encode())
+    print(f"Sent init to Player {my_id}")
+    # -------------------------------------------------
 
     while True:
         try:
             data = conn.recv(1024)
             if not data:
+                print(f"Player {my_id} disconnected (no data)")
                 break
 
             buffer += data.decode()
             while "\n" in buffer:
                 message, buffer = buffer.split("\n", 1)
+                print(f"Server received from Player {my_id}: {message}")
+
                 packet = json.loads(message)
 
-                if packet["type"] == "move":
-                    move_data = packet["data"]
-                    row, col = move_data["row"], move_data["col"]
+                if packet.get("type") == "move":
+                    move_data = packet.get("data")
+                    row = move_data.get("row")
+                    col = move_data.get("col")
 
-                    # Validate turn and empty cell
                     if my_id == current_turn and playing_field[row][col] == 0:
                         playing_field[row][col] = my_id
-
                         winner = check_winner()
-                        # Switch turns (1 to 2 or 2 to 1)
                         current_turn = 2 if current_turn == 1 else 1
 
-                        # Broadcast update packet
                         update_packet = {
                             "type": "update",
                             "data": {
@@ -120,16 +125,15 @@ def handle_client(client_data):
                             }
                         }
                         broadcast(update_packet)
+                        print(f"Move accepted: {row}:{col}. Next turn: {current_turn}")
                     else:
-                        # Send error if move is invalid
-                        error_packet = {
-                            "type": "error",
-                            "message": "Invalid move or not your turn"
-                        }
-                        conn.sendall((json.dumps(error_packet) + '\n').encode())
+                        error_pkt = {"type": "error", "message": "Invalid move"}
+                        conn.sendall((json.dumps(error_pkt) + '\n').encode())
 
         except Exception as e:
-            print(f"Error handling client {my_id}: {e}")
+            print(f"CRITICAL ERROR in handle_client for Player {my_id}: {e}")
+            import traceback
+            traceback.print_exc()
             break
 
     conn.close()
@@ -142,28 +146,57 @@ def accept_clients():
     server.listen()
     print(f'Server logic online at {HOST}:{PORT}')
 
-    # Limit to 2 players
+    # Limit 2 players
     while running and client_counter < 2:
         try:
             conn, addr = server.accept()
             client_counter += 1
 
-            # Create ClientData instance
             client = ClientData(conn, addr, client_counter, False)
             clients[client_counter] = client
 
             print(f"Player {client_counter} joined from {addr}")
 
+            # Start a thread to handle client
             thread = threading.Thread(target=handle_client, args=(client,))
             thread.daemon = True
             thread.start()
+
+            # CHECK IF BOTH PLAYERS ARE CONNECTED
+            if client_counter == 2:
+                print("Both players connected. Notifying clients to start game...")
+
+                # Prepare the start packet
+                start_packet = {
+                    "type": "game_ready",
+                    "data": {
+                        "status": "started",
+                        "first_turn": 1  # Player 1 always starts
+                    }
+                }
+                # Broadcast to both players so they can unlock their UI
+                broadcast(start_packet)
+
         except Exception as e:
             print(f"Accept error: {e}")
 
     print("Player limit reached. Accepting thread closed.")
 
 
-if __name__ == "__main__":
-    # Using a thread for accepting to keep main thread free
-    accept_thread = threading.Thread(target=accept_clients)
+def start():
+    global running
+    running = True
+
+    accept_thread = threading.Thread(target=accept_clients, daemon=True)
     accept_thread.start()
+
+    print("Server is active and keeping threads alive...")
+    try:
+        while running:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Server shutting down...")
+        running = False
+
+
+start()
