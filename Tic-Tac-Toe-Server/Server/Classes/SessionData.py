@@ -6,6 +6,7 @@ class SessionData:
         self.playing_field = [[0, 0, 0] for _ in range(3)]
         self.current_turn = 1
         self.is_active = True
+        self.ready_players = set()
 
     def check_winner(self):
         field = self.playing_field

@@ -1,4 +1,6 @@
 from Client.View.view import View
+from Client.View.login_window import LoginWindow
+from Client.View.upload_pfp_window import UploadPFPWindow
 import tkinter as tk
 
 class Controller:
@@ -9,9 +11,13 @@ class Controller:
         self.root = tk.Tk()
         self.root.withdraw()
 
+        self.login_window = LoginWindow(self, self.root)
+        self.upload_pfp_window = UploadPFPWindow(self, self.root)
         self.view = View(self, self.root)
         self.my_id = None
         self.is_game_started = False
+
+        self.flag = False
 
 
     def poll_queue(self):
@@ -25,6 +31,7 @@ class Controller:
             if p_type == "init":
                 # Store our player ID (1 or 2)
                 self.my_id = p_data["your_id"]
+                self.view.update_player_name(f"Player {self.my_id}")
                 self.view.status_label.config(text=f"CONNECTED AS PLAYER {self.my_id}")
 
             elif p_type == "game_ready":
@@ -61,22 +68,52 @@ class Controller:
         # Sends move coordinates to the game server
         if self.is_game_started:
             self.model.send_move(row, col)
-            # Lock immediately after clicking to prevent double clicks
             self.view.lock_board("SENDING MOVE...")
 
-    def check_connection(self):
-        # Checks if model successfully connected to server
+
+    def verification(self, username, password, action):
+        print("Verification method called in Controller")
+        self.model.verification(username, password, action)
+        print("Checking verification in Controller")
+        self.check_verification()
+
+
+    def check_verification(self):
+        if self.model.verified:
+            self.login_window.show_connection("Welcome!")
+            self.login_window.root.destroy()
+            self.upload_pfp_window.start()
+            return
+
+        self.view.root.after(200, self.check_verification)
+
+
+    def avatar_selected(self, file_path):
+        print("Avatar selected method called in Controller: " + file_path)
+
+        if file_path:
+            self.model.send_avatar(file_path)
+
+        self.view.start()
+        self.poll_queue()
+
+
+    def is_connected(self):
         if self.model.is_connected():
-            print("Connected to server successfully.")
-            self.poll_queue()
-        else:
-            # Keep checking until connection is established
-            self.root.after(500, self.check_connection)
+            self.login_window.show_connection("connected to server")
+            self.login_window.enable_button()
+            return
+        elif not self.flag:
+            self.flag = True
+            self.login_window.disable_button()
+            self.login_window.show_connection("not connected")
+
+        self.view.root.after(1000, self.is_connected)
 
     def start(self):
-        self.view.start()
         self.model.start()
-        self.check_connection()
+        self.login_window.start()
+        self.is_connected()
         self.root.mainloop()
 
     def stop(self):

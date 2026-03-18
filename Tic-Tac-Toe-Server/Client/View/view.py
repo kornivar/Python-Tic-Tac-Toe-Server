@@ -107,6 +107,9 @@ class View:
         y = (window.winfo_screenheight() - height) // 2
         window.geometry(f"{width}x{height}+{x}+{y}")
 
+    def update_player_name(self, name):
+        self.root.title(name)
+
 
     def start(self):
         self.create_main_interface()

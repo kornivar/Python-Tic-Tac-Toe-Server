@@ -2,6 +2,9 @@ import socket
 import json
 import threading
 import time
+import os
+import hashlib
+import uuid
 
 from Server.Classes.ClientData import ClientData
 from Server.Classes.SessionData import SessionData
@@ -10,68 +13,197 @@ HOST = '127.0.0.1'
 PORT = 4000
 running = True
 DB_FILE = "database.json"
+AVATAR_DIR = "avatars"
 
-sessions = {} # {session_id: SessionData}
+sessions = {} # session_id: SessionData
 session_counter = 0
 
-# def load_db():
-#     if not os.path.exists(DB_FILE):
-#         db = {
-#             "users": {}
-#         }
-#
-#         with open(DB_FILE, "w") as f:
-#             json.dump(db, f, indent=4)
-#
-#         return db
-#
-#     with open(DB_FILE, "r") as f:
-#         return json.load(f)
-#
-#
-# def save_db(db):
-#     with open(DB_FILE, "w") as f:
-#         json.dump(db, f, indent=4)
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def load_db():
+    if not os.path.exists(DB_FILE):
+        db = {
+            "users": {}
+        }
+
+        with open(DB_FILE, "w") as f:
+            json.dump(db, f, indent=4)
+
+        return db
+
+    with open(DB_FILE, "r") as f:
+        return json.load(f)
+
+def save_db(db):
+    with open(DB_FILE, "w") as f:
+        json.dump(db, f, indent=4)
+
+
+def receive_avatar(conn, username, filename, size):
+    ext = filename.split(".")[-1]
+    unique_name = str(uuid.uuid4()) + "." + ext
+
+    path = os.path.join(AVATAR_DIR, unique_name)
+
+    received = 0
+
+    with open(path, "wb") as f:
+        while received < size:
+
+            chunk = conn.recv(min(4096, size - received))
+
+            if not chunk:
+                break
+
+            f.write(chunk)
+            received += len(chunk)
+
+    set_avatar(username, path)
+
+
+def verification(conn, status):
+    global running
+    if running:
+        temp_packet = {
+            "type": "response",
+            "data": status
+        }
+        packet = json.dumps(temp_packet)
+        conn.sendall((packet + '\n').encode())
+
+
+def login(conn, username, password):
+    db = load_db()
+
+    if username not in db["users"]:
+        verification(conn, False)
+        return False
+
+    hashed = hash_password(password)
+
+    if db["users"][username]["password"] == hashed:
+        verification(conn, True)
+        return True
+
+    verification(conn, False)
+    return False
+
+
+def signup(conn, username, password):
+    db = load_db()
+
+    if username in db["users"]:
+        verification(conn, False)
+        return False
+
+    hashed = hash_password(password)
+
+    db["users"][username] = {
+        "password": hashed,
+        "avatar": None
+    }
+
+    save_db(db)
+
+    verification(conn, True)
+    return True
+
+
+def to_packet(data, d_type="message"):
+    if d_type == "request":
+        packet = {
+            "type": "request",
+            "data": data
+        }
+        return json.dumps(packet)
+    elif d_type == "message":
+        packet = {
+            "type": "message",
+            "data": data
+        }
+        return json.dumps(packet)
+
+    return None
+
+
+def set_avatar(username, path):
+    db = load_db()
+
+    db["users"][username]["avatar"] = path
+    save_db(db)
 
 
 def handle_client(client_data, session):
     conn = client_data.conn
     my_id = client_data.id
     buffer = ""
+    is_authenticated = False
+    is_ready = False
 
     print(f"[Session {session.session_id}] Handler started for Player {my_id}")
-
-    init_packet = {
-        "type": "init",
-        "data": {
-            "your_id": my_id,
-            "field": session.playing_field
-        }
-    }
-    conn.sendall((json.dumps(init_packet) + '\n').encode())
-
-    print(f"[Session {session.session_id}] Sent init to Player {my_id}")
 
     while True:
         try:
             data = conn.recv(1024)
-            if not data:
-                print(f"[Session {session.session_id}] Player {my_id} disconnected (no data)")
-                break
+            if not data: break
 
             buffer += data.decode()
             while "\n" in buffer:
                 message, buffer = buffer.split("\n", 1)
-
-                print(f"[Session {session.session_id}] Server received from Player {my_id}: {message}")
-
                 packet = json.loads(message)
+                p_type = packet.get("type")
+                p_data = packet.get("data")
 
-                if packet.get("type") == "move":
-                    move_data = packet.get("data")
-                    row = move_data.get("row")
-                    col = move_data.get("col")
+                if p_type == "login":
+                    login_success = login(conn, p_data["username"], p_data["password"])
 
+                    if login_success:
+                        is_authenticated = True
+                    else:
+                        print("Login failed")
+
+                elif p_type == "signup":
+                    login_success = signup(conn, p_data["username"], p_data["password"])
+
+                    if login_success:
+                        is_authenticated = True
+                    else:
+                        print("Signup failed")
+
+                elif p_type == "ready":
+                    if is_authenticated:
+                        is_ready = True
+                        print(f"[Session {session.session_id}] Player {my_id} is ready")
+
+                        init_packet = {
+                            "type": "init",
+                            "data": {
+                                "your_id": my_id,
+                                "field": session.playing_field
+                            }
+                        }
+                        conn.sendall((json.dumps(init_packet) + '\n').encode())
+
+                        session.ready_players.add(my_id)
+
+                        if len(session.ready_players) == 2:
+                            start_packet = {
+                                "type": "game_ready",
+                                "data": {"status": "started", "first_turn": 1}
+                            }
+                            session.broadcast(start_packet)
+                            print(f"[Session {session.session_id}] All players ready. Game started.")
+                    else:
+                        error_pkt = {"type": "error", "message": "Login required before ready"}
+                        conn.sendall((json.dumps(error_pkt) + '\n').encode())
+
+
+                elif p_type == "move":
+                    if not is_ready: continue
+
+                    row, col = p_data.get("row"), p_data.get("col")
                     if my_id == session.current_turn and session.playing_field[row][col] == 0:
                         session.playing_field[row][col] = my_id
                         winner = session.check_winner()
@@ -86,13 +218,15 @@ def handle_client(client_data, session):
                             }
                         }
                         session.broadcast(update_packet)
-                        print(f"[Session {session.session_id}] Move accepted: {row}:{col}. Next turn: {session.current_turn}")
                     else:
                         error_pkt = {"type": "error", "message": "Invalid move"}
                         conn.sendall((json.dumps(error_pkt) + '\n').encode())
 
+                elif p_type == "avatar":
+                    receive_avatar(conn, p_data["username"], p_data["filename"], p_data["size"])
+
         except Exception as e:
-            print(f"[Session {session.session_id}] CRITICAL ERROR in handle_client for Player {my_id}: {e}")
+            print(f"[Session {session.session_id}] Error for Player {my_id}: {e}")
             break
 
     conn.close()
@@ -129,11 +263,6 @@ def accept_clients():
             thread.start()
 
             if player_id == 2:
-                start_packet = {
-                    "type": "game_ready",
-                    "data": {"status": "started", "first_turn": 1}
-                }
-                current_waiting_session.broadcast(start_packet)
                 current_waiting_session = None
 
         except Exception as e:
