@@ -21,7 +21,6 @@ class Controller:
 
 
     def poll_queue(self):
-        # Processes incoming packets from the Model
         while not self.queue.empty():
             packet = self.queue.get()
             print(f"DEBUG: Received packet: {packet}")
@@ -29,7 +28,6 @@ class Controller:
             p_data = packet.get("data")
 
             if p_type == "init":
-                # Store our player ID (1 or 2)
                 self.my_id = p_data["your_id"]
                 self.view.update_player_name(f"Player {self.my_id}")
                 self.view.status_label.config(text=f"CONNECTED AS PLAYER {self.my_id}")
@@ -42,7 +40,6 @@ class Controller:
                     self.view.lock_board("WAITING FOR PLAYER 1...")
 
             elif p_type == "update":
-                # Update board and check turns
                 field = p_data["field"]
                 next_turn = p_data["next_turn"]
                 winner = p_data["winner"]
@@ -57,12 +54,16 @@ class Controller:
                 else:
                     self.view.lock_board("OPPONENT'S TURN")
 
+            elif p_type == "avatar":
+                path = p_data.get("path")
+                if path:
+                    self.view.update_avatar(path)
+
             elif p_type == "error":
-                # Show server-side errors
                 print(f"Server Error: {packet.get('message')}")
 
-        # Continue polling
         self.root.after(100, self.poll_queue)
+
 
     def send_move(self, row, col):
         # Sends move coordinates to the game server
@@ -75,26 +76,36 @@ class Controller:
         print("Verification method called in Controller")
         self.model.verification(username, password, action)
         print("Checking verification in Controller")
-        self.check_verification()
+        self.check_verification(action)
 
 
-    def check_verification(self):
-        if self.model.verified:
+    def check_verification(self, action=None):
+        if self.model.verified and action == "signup":
             self.login_window.show_connection("Welcome!")
             self.login_window.root.destroy()
             self.upload_pfp_window.start()
             return
 
+        elif self.model.verified and action == "login":
+            self.login_window.show_connection("Welcome back!")
+            self.login_window.root.destroy()
+            self.view.start()
+            self.model.send_ready(need_avatar=True)
+            self.poll_queue()
+            return
+
         self.view.root.after(200, self.check_verification)
 
 
-    def avatar_selected(self, file_path):
-        print("Avatar selected method called in Controller: " + file_path)
+    def avatar_selected(self, image_path):
+        print("Avatar selected method called in Controller: " + image_path)
 
-        if file_path:
-            self.model.send_avatar(file_path)
+        if image_path:
+            self.model.send_avatar(image_path)
 
         self.view.start()
+        self.view.update_avatar(image_path)
+        self.model.send_ready(need_avatar=False)
         self.poll_queue()
 
 
@@ -110,11 +121,13 @@ class Controller:
 
         self.view.root.after(1000, self.is_connected)
 
+
     def start(self):
         self.model.start()
         self.login_window.start()
         self.is_connected()
         self.root.mainloop()
+
 
     def stop(self):
         self.model.stop()

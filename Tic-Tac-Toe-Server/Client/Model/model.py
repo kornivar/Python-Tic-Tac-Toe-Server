@@ -3,7 +3,7 @@ import threading
 import time
 import json
 import os
-
+import base64
 
 class Model:
     def __init__(self, ip, port, queue):
@@ -20,8 +20,6 @@ class Model:
         self.client = None
         self.receive_thread = None
         self.connect_thread = None
-
-
 
     def receive(self):
         buffer = ""
@@ -42,19 +40,38 @@ class Model:
                     p_data = packet.get("data")
 
                     if p_type == "init":
-                        # Server sends initial ID and board
                         self.my_id = p_data["your_id"]
                         self.queue.put({"type": "init", "data": p_data})
 
                     elif p_type == "update":
-                        # Server sends board update, next turn, and winner status
                         self.queue.put({"type": "update", "data": p_data})
 
                     elif p_type == "game_ready":
                         self.queue.put({"type": "game_ready", "data": p_data})
 
+                    elif p_type == "avatar":
+                        if p_data.get("exists"):
+                            avatar_bytes = base64.b64decode(p_data["content"])
+                            filename = p_data.get("filename", "avatar.png")
+
+                            cache_dir = "client_cache"
+                            os.makedirs(cache_dir, exist_ok=True)
+                            local_path = os.path.join(cache_dir, filename)
+
+                            with open(local_path, "wb") as f:
+                                f.write(avatar_bytes)
+
+                            self.queue.put({
+                                "type": "avatar",
+                                "data": {"path": local_path}
+                            })
+                        else:
+                            self.queue.put({
+                                "type": "avatar",
+                                "data": {"path": None}
+                            })
+
                     elif p_type == "error":
-                        # Server reports invalid move
                         self.queue.put({"type": "error", "message": packet.get("message")})
 
                     elif p_type == "response":
@@ -67,9 +84,7 @@ class Model:
         self.running = False
         self.client.close()
 
-
     def send_move(self, row, col):
-        # Send a move coordinates to the server
         if not self.running:
             return
 
@@ -80,7 +95,6 @@ class Model:
 
         packet = self.to_packet(move_payload, "move")
         self.client.sendall((packet + "\n").encode())
-
 
     def send_avatar(self, file_path):
         if not self.running:
@@ -106,6 +120,19 @@ class Model:
                 if not chunk:
                     break
                 self.client.sendall(chunk)
+
+    def send_ready(self, need_avatar=False):
+        if not self.running:
+            return
+
+        packet = {
+            "type": "ready",
+            "data": {
+                "need_avatar": need_avatar
+            }
+        }
+
+        self.client.sendall((json.dumps(packet) + "\n").encode())
 
 
     @staticmethod

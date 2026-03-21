@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox
+from PIL import Image, ImageTk, ImageDraw, ImageOps
 
 
 class View:
@@ -11,30 +12,45 @@ class View:
         self.window_width = 400
         self.window_height = 500
 
-        # Grid of buttons
+        self.avatar_canvas = None
+        self.avatar_circle = None
+        self.tk_image = None
         self.buttons = [[None for _ in range(3)] for _ in range(3)]
         self.status_label = None
 
-        self.root.withdraw()  # Hide until started
-
+        self.root.withdraw()
 
     def create_main_interface(self):
         self.root.deiconify()
         self.center(self.root, self.window_width, self.window_height)
         self.root.configure(background="#EAF4F9")
 
-        # Top Status Label ("Waiting for player", "Your turn"...)
+        top_bar = tk.Frame(self.root, bg="#EAF4F9", padx=20, pady=15)
+        top_bar.pack(fill="x")
+
+        self.avatar_canvas = tk.Canvas(
+            top_bar,
+            width=70,
+            height=70,
+            bg="#EAF4F9",
+            highlightthickness=0
+        )
+        self.avatar_canvas.pack(side="left")
+
+        self.avatar_circle = self.avatar_canvas.create_oval(
+            2, 2, 68, 68, fill="", outline="#243B4A", width=2
+        )
+
         self.status_label = tk.Label(
-            self.root,
+            top_bar,
             text="WAITING FOR OPPONENT...",
-            font=("Arial", 14, "bold"),
+            font=("Arial", 12, "bold"),
             bg="#EAF4F9",
             fg="#243B4A",
-            pady=20
+            padx=15
         )
-        self.status_label.pack()
+        self.status_label.pack(side="left")
 
-        # Game Board Frame
         grid_frame = tk.Frame(self.root, bg="#BFDCEB", padx=10, pady=10)
         grid_frame.pack(expand=True)
 
@@ -47,12 +63,39 @@ class View:
                     width=5,
                     height=2,
                     bg="#F5F9FC",
+                    activebackground="#D0E4F0",
                     command=lambda r=row, c=col: self.on_click(r, c)
                 )
                 btn.grid(row=row, column=col, padx=5, pady=5)
                 self.buttons[row][col] = btn
 
         self.lock_board("WAITING FOR PLAYERS...")
+
+    def update_avatar(self, image_path):
+        try:
+            size = (66, 66)
+
+            img = Image.open(image_path).convert("RGBA")
+            resample_filter = getattr(Image, "Resampling", Image).LANCZOS
+            img = ImageOps.fit(img, size, method=resample_filter)
+
+            mask = Image.new("L", size, 0)
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0, size[0], size[1]), fill=255)
+            img.putalpha(mask)
+
+            self.tk_image = ImageTk.PhotoImage(img)
+
+            self.avatar_canvas.delete("avatar_img")
+            self.avatar_canvas.create_image(
+                35, 35,
+                image=self.tk_image,
+                tags="avatar_img"
+            )
+            self.avatar_canvas.tag_lower("avatar_img", self.avatar_circle)
+
+        except Exception as e:
+            print(f"Error: {e}")
 
 
     def on_click(self, row, col):

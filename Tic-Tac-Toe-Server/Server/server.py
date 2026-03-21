@@ -5,6 +5,7 @@ import time
 import os
 import hashlib
 import uuid
+import base64
 
 from Server.Classes.ClientData import ClientData
 from Server.Classes.SessionData import SessionData
@@ -111,21 +112,56 @@ def signup(conn, username, password):
     return True
 
 
-def to_packet(data, d_type="message"):
-    if d_type == "request":
-        packet = {
-            "type": "request",
-            "data": data
-        }
-        return json.dumps(packet)
-    elif d_type == "message":
-        packet = {
-            "type": "message",
-            "data": data
-        }
-        return json.dumps(packet)
+# def to_packet(data, d_type="message"):
+#     if d_type == "request":
+#         packet = {
+#             "type": "request",
+#             "data": data
+#         }
+#         return json.dumps(packet)
+#     elif d_type == "message":
+#         packet = {
+#             "type": "message",
+#             "data": data
+#         }
+#         return json.dumps(packet)
+#
+#     return None
 
-    return None
+
+def send_avatar_to_client(conn, username):
+    db = load_db()
+    user = db["users"].get(username)
+
+    if not user:
+        pkt = {
+            "type": "avatar",
+            "data": {"exists": False}
+        }
+        conn.sendall((json.dumps(pkt) + '\n').encode())
+        return
+
+    avatar_path = user.get("avatar")
+    if not avatar_path or not os.path.exists(avatar_path):
+        pkt = {
+            "type": "avatar",
+            "data": {"exists": False}
+        }
+        conn.sendall((json.dumps(pkt) + '\n').encode())
+        return
+
+    with open(avatar_path, "rb") as f:
+        content = base64.b64encode(f.read()).decode("utf-8")
+
+    pkt = {
+        "type": "avatar",
+        "data": {
+            "exists": True,
+            "filename": os.path.basename(avatar_path),
+            "content": content
+        }
+    }
+    conn.sendall((json.dumps(pkt) + '\n').encode())
 
 
 def set_avatar(username, path):
@@ -141,13 +177,15 @@ def handle_client(client_data, session):
     buffer = ""
     is_authenticated = False
     is_ready = False
+    current_username = None
 
     print(f"[Session {session.session_id}] Handler started for Player {my_id}")
 
     while True:
         try:
             data = conn.recv(1024)
-            if not data: break
+            if not data:
+                break
 
             buffer += data.decode()
             while "\n" in buffer:
@@ -158,23 +196,20 @@ def handle_client(client_data, session):
 
                 if p_type == "login":
                     login_success = login(conn, p_data["username"], p_data["password"])
-
                     if login_success:
                         is_authenticated = True
-                    else:
-                        print("Login failed")
+                        current_username = p_data["username"]
 
                 elif p_type == "signup":
                     login_success = signup(conn, p_data["username"], p_data["password"])
-
                     if login_success:
                         is_authenticated = True
-                    else:
-                        print("Signup failed")
+                        current_username = p_data["username"]
 
                 elif p_type == "ready":
                     if is_authenticated:
                         is_ready = True
+                        need_avatar = bool(p_data.get("need_avatar", False))
                         print(f"[Session {session.session_id}] Player {my_id} is ready")
 
                         init_packet = {
@@ -185,6 +220,9 @@ def handle_client(client_data, session):
                             }
                         }
                         conn.sendall((json.dumps(init_packet) + '\n').encode())
+
+                        if need_avatar:
+                            send_avatar_to_client(conn, current_username)
 
                         session.ready_players.add(my_id)
 
@@ -199,9 +237,9 @@ def handle_client(client_data, session):
                         error_pkt = {"type": "error", "message": "Login required before ready"}
                         conn.sendall((json.dumps(error_pkt) + '\n').encode())
 
-
                 elif p_type == "move":
-                    if not is_ready: continue
+                    if not is_ready:
+                        continue
 
                     row, col = p_data.get("row"), p_data.get("col")
                     if my_id == session.current_turn and session.playing_field[row][col] == 0:
