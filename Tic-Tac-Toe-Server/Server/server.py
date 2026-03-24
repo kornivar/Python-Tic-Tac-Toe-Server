@@ -10,18 +10,26 @@ import base64
 from Server.Classes.ClientData import ClientData
 from Server.Classes.SessionData import SessionData
 
-HOST = '127.0.0.1'
-PORT = 4000
+HOST = None
+PORT = None
 running = True
-DB_FILE = "database.json"
+DB_FILE = None
+DB_FILE = None
 AVATAR_DIR = "avatars"
+config = None
 
-sessions = {} # session_id: SessionData
+sessions = {}
 session_counter = 0
+
+
+def load_config(file_path: str):
+    with open(file_path, "r") as f:
+        return json.load(f)
 
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
 
 def load_db():
     if not os.path.exists(DB_FILE):
@@ -110,23 +118,6 @@ def signup(conn, username, password):
 
     verification(conn, True)
     return True
-
-
-# def to_packet(data, d_type="message"):
-#     if d_type == "request":
-#         packet = {
-#             "type": "request",
-#             "data": data
-#         }
-#         return json.dumps(packet)
-#     elif d_type == "message":
-#         packet = {
-#             "type": "message",
-#             "data": data
-#         }
-#         return json.dumps(packet)
-#
-#     return None
 
 
 def send_avatar_to_client(conn, username):
@@ -309,7 +300,15 @@ def accept_clients():
 
 def start():
     global running
+    global config
+    global DB_FILE
+    global HOST, PORT
+    config = load_config("config.json")
+    DB_FILE = config["DB_FILE"]
+    HOST = config["HOST"]
+    PORT = config["PORT"]
     running = True
+
 
     accept_thread = threading.Thread(target=accept_clients, daemon=True)
     accept_thread.start()
