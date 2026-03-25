@@ -29,8 +29,10 @@ def load_config(file_path: str):
         return json.load(f)
 
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+def hash_password(password: str) -> tuple[str, str]:
+    salt = os.urandom(16)
+    hash_bytes = hashlib.sha256(salt + password.encode()).digest()
+    return salt.hex(), hash_bytes.hex()
 
 
 def load_db():
@@ -94,7 +96,11 @@ def login(conn, username, password):
         verification(conn, False)
         return False
 
-    hashed = hash_password(password)
+    password_bytes = password.encode("utf-8")
+    salt = bytes.fromhex(db["users"][username]["salt"])
+    salted_password: bytes = salt + password_bytes
+
+    hashed = hashlib.sha256(salted_password).hexdigest()
 
     if db["users"][username]["password"] == hashed:
         verification(conn, True)
@@ -111,10 +117,11 @@ def signup(conn, username, password):
         verification(conn, False)
         return False
 
-    hashed = hash_password(password)
+    salt, hashed = hash_password(password)
 
     db["users"][username] = {
         "password": hashed,
+        "salt": salt,
         "avatar": None
     }
 

@@ -15,7 +15,6 @@ class Model:
 
         self.my_id = None
         self.running = False
-        self.verified = False
         self.username = None
         self.connected = False
 
@@ -85,9 +84,8 @@ class Model:
                         self.queue.put({"type": "error", "message": packet.get("message")})
 
                     elif p_type == "response":
-                        self.verified = p_data
                         if hasattr(self, "_callback") and self._callback:
-                            self._callback(self.verified)
+                            self._callback(p_data)
 
             except Exception as e:
                 print(f"Receive error: {e}")
