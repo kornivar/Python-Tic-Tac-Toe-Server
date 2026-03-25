@@ -4,12 +4,14 @@ import time
 import json
 import os
 import base64
+from cryptography.fernet import Fernet
 
 class Model:
-    def __init__(self, ip, port, queue):
+    def __init__(self, ip, port, queue, cipher):
         self.ip = ip
         self.port = port
         self.queue = queue
+        self.cipher  = cipher
 
         self.my_id = None
         self.running = False
@@ -17,12 +19,14 @@ class Model:
         self.username = None
         self.connected = False
 
+        self._callback = None
+
         self.client = None
         self.receive_thread = None
         self.connect_thread = None
 
     def receive(self):
-        buffer = ""
+        buffer = b""
 
         while self.running:
             try:
@@ -30,11 +34,17 @@ class Model:
                 if not data:
                     break
 
-                buffer += data.decode()
+                buffer += data
 
-                while "\n" in buffer:
-                    message, buffer = buffer.split("\n", 1)
-                    packet = json.loads(message)
+                while b"\n" in buffer:
+                    message, buffer = buffer.split(b"\n", 1)
+
+                    print(f"CLIENT: Received encrypted message: {message}")
+
+                    decrypted = self.cipher.decrypt(message)
+                    decoded = decrypted.decode("utf-8")
+
+                    packet = json.loads(decoded)
 
                     p_type = packet.get("type")
                     p_data = packet.get("data")
@@ -76,6 +86,8 @@ class Model:
 
                     elif p_type == "response":
                         self.verified = p_data
+                        if hasattr(self, "_callback") and self._callback:
+                            self._callback(self.verified)
 
             except Exception as e:
                 print(f"Receive error: {e}")
@@ -94,7 +106,9 @@ class Model:
         }
 
         packet = self.to_packet(move_payload, "move")
-        self.client.sendall((packet + "\n").encode())
+        packet_bytes = packet.encode('utf-8')
+        encrypted_packet = self.cipher.encrypt(packet_bytes)
+        self.client.sendall(encrypted_packet + b"\n")
 
     def send_avatar(self, file_path):
         if not self.running:
@@ -112,7 +126,10 @@ class Model:
             }
         }
 
-        self.client.sendall((json.dumps(packet) + "\n").encode())
+        packet_bytes = json.dumps(packet).encode('utf-8')
+        encrypted_packet = self.cipher.encrypt(packet_bytes)
+
+        self.client.sendall(encrypted_packet + b"\n")
 
         with open(file_path, "rb") as f:
             while True:
@@ -132,7 +149,10 @@ class Model:
             }
         }
 
-        self.client.sendall((json.dumps(packet) + "\n").encode())
+        packet_bytes = json.dumps(packet).encode('utf-8')
+        encrypted_packet = self.cipher.encrypt(packet_bytes)
+
+        self.client.sendall(encrypted_packet + b"\n")
 
 
     @staticmethod
@@ -160,25 +180,29 @@ class Model:
         return None
 
 
-    def verification(self, username, password, action):
+    def verification(self, username, password, action, callback=None):
         if self.client:
+            self._callback = callback
+            self.username = username
             if action == "login":
-                self.username = username
                 data = {
                     "username": username,
                     "password": password,
                 }
                 packet = self.to_packet(data, "login")
-                self.client.sendall((packet + '\n').encode())
+                packet_bytes = packet.encode('utf-8')
+                encrypted_packet = self.cipher.encrypt(packet_bytes)
+                self.client.sendall(encrypted_packet + b"\n")
 
             elif action == "signup":
-                self.username = username
                 data = {
                     "username": username,
                     "password": password,
                 }
                 packet = self.to_packet(data, "signup")
-                self.client.sendall((packet + '\n').encode())
+                packet_bytes = packet.encode('utf-8')
+                encrypted_packet = self.cipher.encrypt(packet_bytes)
+                self.client.sendall(encrypted_packet + b"\n")
 
 
     def is_connected(self):

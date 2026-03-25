@@ -6,6 +6,7 @@ import os
 import hashlib
 import uuid
 import base64
+from cryptography.fernet import Fernet
 
 from Server.Classes.ClientData import ClientData
 from Server.Classes.SessionData import SessionData
@@ -17,6 +18,7 @@ DB_FILE = None
 DB_FILE = None
 AVATAR_DIR = "avatars"
 config = None
+cipher = None
 
 sessions = {}
 session_counter = 0
@@ -74,13 +76,15 @@ def receive_avatar(conn, username, filename, size):
 
 def verification(conn, status):
     global running
+    global cipher
     if running:
-        temp_packet = {
+        packet = {
             "type": "response",
             "data": status
         }
-        packet = json.dumps(temp_packet)
-        conn.sendall((packet + '\n').encode())
+        packet_bytes = json.dumps(packet).encode('utf-8')
+        encrypted_packet = cipher.encrypt(packet_bytes)
+        conn.sendall(encrypted_packet + b"\n")
 
 
 def login(conn, username, password):
@@ -121,6 +125,7 @@ def signup(conn, username, password):
 
 
 def send_avatar_to_client(conn, username):
+    global cipher
     db = load_db()
     user = db["users"].get(username)
 
@@ -134,17 +139,20 @@ def send_avatar_to_client(conn, username):
 
     avatar_path = user.get("avatar")
     if not avatar_path or not os.path.exists(avatar_path):
-        pkt = {
+        packet = {
             "type": "avatar",
             "data": {"exists": False}
         }
-        conn.sendall((json.dumps(pkt) + '\n').encode())
+
+        packet_bytes = json.dumps(packet).encode('utf-8')
+        encrypted_packet = cipher.encrypt(packet_bytes)
+        conn.sendall(encrypted_packet + b"\n")
         return
 
     with open(avatar_path, "rb") as f:
         content = base64.b64encode(f.read()).decode("utf-8")
 
-    pkt = {
+    packet = {
         "type": "avatar",
         "data": {
             "exists": True,
@@ -152,7 +160,9 @@ def send_avatar_to_client(conn, username):
             "content": content
         }
     }
-    conn.sendall((json.dumps(pkt) + '\n').encode())
+    packet_bytes = json.dumps(packet).encode('utf-8')
+    encrypted_packet = cipher.encrypt(packet_bytes)
+    conn.sendall(encrypted_packet + b"\n")
 
 
 def set_avatar(username, path):
@@ -163,9 +173,10 @@ def set_avatar(username, path):
 
 
 def handle_client(client_data, session):
+    global cipher
     conn = client_data.conn
     my_id = client_data.id
-    buffer = ""
+    buffer = b""
     is_authenticated = False
     is_ready = False
     current_username = None
@@ -178,10 +189,18 @@ def handle_client(client_data, session):
             if not data:
                 break
 
-            buffer += data.decode()
-            while "\n" in buffer:
-                message, buffer = buffer.split("\n", 1)
-                packet = json.loads(message)
+            buffer += data
+
+            while b"\n" in buffer:
+                message, buffer = buffer.split(b"\n", 1)
+
+                print(f"SERVER: Received encrypted message: {message}")
+
+                decrypted = cipher.decrypt(message)
+                decoded = decrypted.decode("utf-8")
+
+                packet = json.loads(decoded)
+
                 p_type = packet.get("type")
                 p_data = packet.get("data")
 
@@ -210,7 +229,10 @@ def handle_client(client_data, session):
                                 "field": session.playing_field
                             }
                         }
-                        conn.sendall((json.dumps(init_packet) + '\n').encode())
+                        packet_bytes = json.dumps(init_packet).encode('utf-8')
+                        encrypted_packet = cipher.encrypt(packet_bytes)
+
+                        conn.sendall(encrypted_packet + b"\n")
 
                         if need_avatar:
                             send_avatar_to_client(conn, current_username)
@@ -246,10 +268,19 @@ def handle_client(client_data, session):
                                 "winner": winner
                             }
                         }
-                        session.broadcast(update_packet)
+
+                        packet_bytes = json.dumps(update_packet).encode('utf-8')
+                        encrypted_packet = cipher.encrypt(packet_bytes)
+
+                        session.broadcast(encrypted_packet)
                     else:
-                        error_pkt = {"type": "error", "message": "Invalid move"}
-                        conn.sendall((json.dumps(error_pkt) + '\n').encode())
+                        error_packet = {
+                            "type": "error",
+                            "message": "Invalid move"
+                        }
+                        packet_bytes = json.dumps(error_packet).encode('utf-8')
+                        encrypted_packet = cipher.encrypt(packet_bytes)
+                        conn.sendall(encrypted_packet + b"\n")
 
                 elif p_type == "avatar":
                     receive_avatar(conn, p_data["username"], p_data["filename"], p_data["size"])
@@ -303,10 +334,15 @@ def start():
     global config
     global DB_FILE
     global HOST, PORT
+    global cipher
     config = load_config("config.json")
     DB_FILE = config["DB_FILE"]
     HOST = config["HOST"]
     PORT = config["PORT"]
+
+    key = config["KEY"].encode('utf-8')
+    cipher = Fernet(key)
+
     running = True
 
 
@@ -323,3 +359,5 @@ def start():
 
 
 start()
+
+

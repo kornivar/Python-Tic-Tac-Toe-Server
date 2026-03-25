@@ -23,7 +23,7 @@ class Controller:
     def poll_queue(self):
         while not self.queue.empty():
             packet = self.queue.get()
-            print(f"DEBUG: Received packet: {packet}")
+            print(f"CONTROLLER: Received decrypted packet: {packet}")
             p_type = packet.get("type")
             p_data = packet.get("data")
 
@@ -74,19 +74,21 @@ class Controller:
 
     def verification(self, username, password, action):
         print("Verification method called in Controller")
-        self.model.verification(username, password, action)
-        print("Checking verification in Controller")
-        self.check_verification(action)
+        def cb(result):
+            print("Checking verification in callback")
+            self.check_verification(result, action)
+
+        self.model.verification(username, password, action, callback=cb)
 
 
-    def check_verification(self, action=None):
-        if self.model.verified and action == "signup":
+    def check_verification(self, result, action=None):
+        if result and action == "signup":
             self.login_window.show_connection("Welcome!")
             self.login_window.root.destroy()
             self.upload_pfp_window.start()
             return
 
-        elif self.model.verified and action == "login":
+        elif result and action == "login":
             self.login_window.show_connection("Welcome back!")
             self.login_window.root.destroy()
             self.view.start()

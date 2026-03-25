@@ -26,11 +26,10 @@ class SessionData:
             return "draw"
         return None
 
-    def broadcast(self, payload):
-        message = (json.dumps(payload) + '\n').encode()
+    def broadcast(self, encrypted_packet):
         for p_id in self.players:
             try:
-                self.players[p_id].conn.sendall(message)
+                self.players[p_id].conn.sendall(encrypted_packet + b"\n")
             except:
                 pass
 
