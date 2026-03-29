@@ -20,7 +20,7 @@ class Controller:
         self.flag = False
 
 
-    def poll_queue(self):
+    def poll_queue(self) -> None:
         while not self.queue.empty():
             packet = self.queue.get()
             print(f"CONTROLLER: Received decrypted packet: {packet}")
@@ -65,14 +65,14 @@ class Controller:
         self.root.after(100, self.poll_queue)
 
 
-    def send_move(self, row, col):
+    def send_move(self, row: int, col: int) -> None:
         # Sends move coordinates to the game server
         if self.is_game_started:
             self.model.send_move(row, col)
             self.view.lock_board("SENDING MOVE...")
 
 
-    def verification(self, username, password, action):
+    def verification(self, username: str, password: str, action: str) -> None:
         print("Verification method called in Controller")
         def cb(result):
             print("Checking verification in callback")
@@ -81,7 +81,7 @@ class Controller:
         self.model.verification(username, password, action, callback=cb)
 
 
-    def check_verification(self, result, action=None):
+    def check_verification(self, result: bool, action: str) -> None:
         if result and action == "signup":
             self.login_window.show_connection("Welcome!")
             self.login_window.root.destroy()
@@ -99,19 +99,22 @@ class Controller:
         self.view.root.after(200, self.check_verification)
 
 
-    def avatar_selected(self, image_path):
+    def avatar_selected(self, image_path: str | None) -> None:
         print("Avatar selected method called in Controller: " + image_path)
 
         if image_path:
             self.model.send_avatar(image_path)
 
         self.view.start()
-        self.view.update_avatar(image_path)
+
+        if image_path:
+            self.view.update_avatar(image_path)
+
         self.model.send_ready(need_avatar=False)
         self.poll_queue()
 
 
-    def is_connected(self):
+    def is_connected(self) -> None:
         if self.model.is_connected():
             self.login_window.show_connection("connected to server")
             self.login_window.enable_button()

@@ -3,7 +3,10 @@ class ClientData:
         self._conn = conn
         self._addr = addr
         self._id = id
-        self._is_win = is_win
+        self.is_win = is_win
+        self.is_authenticated = False
+        self.is_ready = False
+        self.username = None
 
     @property
     def conn(self):
@@ -16,7 +19,3 @@ class ClientData:
     @property
     def id(self):
         return self._id
-
-    @property
-    def is_win(self):
-        return self._is_win

@@ -24,7 +24,8 @@ class Model:
         self.receive_thread = None
         self.connect_thread = None
 
-    def receive(self):
+
+    def receive(self) -> None:
         buffer = b""
 
         while self.running:
@@ -52,6 +53,12 @@ class Model:
                         self.my_id = p_data["your_id"]
                         self.queue.put({"type": "init", "data": p_data})
 
+                    elif p_type == "identify_request":
+
+                        print("server requested identification")
+
+                        self.identify()
+
                     elif p_type == "update":
                         self.queue.put({"type": "update", "data": p_data})
 
@@ -59,26 +66,7 @@ class Model:
                         self.queue.put({"type": "game_ready", "data": p_data})
 
                     elif p_type == "avatar":
-                        if p_data.get("exists"):
-                            avatar_bytes = base64.b64decode(p_data["content"])
-                            filename = p_data.get("filename", "avatar.png")
-
-                            cache_dir = "client_cache"
-                            os.makedirs(cache_dir, exist_ok=True)
-                            local_path = os.path.join(cache_dir, filename)
-
-                            with open(local_path, "wb") as f:
-                                f.write(avatar_bytes)
-
-                            self.queue.put({
-                                "type": "avatar",
-                                "data": {"path": local_path}
-                            })
-                        else:
-                            self.queue.put({
-                                "type": "avatar",
-                                "data": {"path": None}
-                            })
+                        self.set_avatar(p_data)
 
                     elif p_type == "error":
                         self.queue.put({"type": "error", "message": packet.get("message")})
@@ -94,7 +82,8 @@ class Model:
         self.running = False
         self.client.close()
 
-    def send_move(self, row, col):
+
+    def send_move(self, row: int, col: int) -> None:
         if not self.running:
             return
 
@@ -108,7 +97,8 @@ class Model:
         encrypted_packet = self.cipher.encrypt(packet_bytes)
         self.client.sendall(encrypted_packet + b"\n")
 
-    def send_avatar(self, file_path):
+
+    def send_avatar(self, file_path: str) -> None:
         if not self.running:
             return
 
@@ -136,7 +126,8 @@ class Model:
                     break
                 self.client.sendall(chunk)
 
-    def send_ready(self, need_avatar=False):
+
+    def send_ready(self, need_avatar=False) -> None:
         if not self.running:
             return
 
@@ -154,7 +145,7 @@ class Model:
 
 
     @staticmethod
-    def to_packet(data, d_type="move"):
+    def to_packet(data, d_type="move") -> str | None:
         if d_type == "move":
             # Wrap data into a standardized JSON packet string
             packet = {
@@ -174,11 +165,17 @@ class Model:
                 "data": data
             }
             return json.dumps(packet)
+        elif d_type == "identify":
+            packet = {
+                "type": "identify",
+                "data": data
+            }
+            return json.dumps(packet)
 
         return None
 
 
-    def verification(self, username, password, action, callback=None):
+    def verification(self, username: str, password: str, action: str, callback=None) -> None:
         if self.client:
             self._callback = callback
             self.username = username
@@ -203,11 +200,45 @@ class Model:
                 self.client.sendall(encrypted_packet + b"\n")
 
 
+    def set_avatar(self, data: dict) -> None:
+        if not self.running:
+            return
+
+        if data.get("exists"):
+            avatar_bytes = base64.b64decode(data["content"])
+            filename = data.get("filename", "avatar.png")
+
+            cache_dir = "ClientCache"
+            os.makedirs(cache_dir, exist_ok=True)
+            local_path = os.path.join(cache_dir, filename)
+
+            with open(local_path, "wb") as f:
+                f.write(avatar_bytes)
+
+            self.queue.put({
+                "type": "avatar",
+                "data": {"path": local_path}
+            })
+        else:
+            self.queue.put({
+                "type": "avatar",
+                "data": {"path": None}
+            })
+
+
+    def identify(self) -> None:
+        data = "client"
+        packet = self.to_packet(data, "identify")
+        packet_bytes = packet.encode('utf-8')
+        encrypted_packet = self.cipher.encrypt(packet_bytes)
+        self.client.sendall(encrypted_packet + b"\n")
+
+
     def is_connected(self):
         return self.connected
 
 
-    def connect(self):
+    def connect(self) -> None:
         # Attempt to establish connection
         while self.running:
             try:

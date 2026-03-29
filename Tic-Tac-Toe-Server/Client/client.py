@@ -5,9 +5,10 @@ import json
 from cryptography.fernet import Fernet
 
 
-def load_config(file_path: str):
+def load_config(file_path: str) -> dict:
     with open(file_path, "r") as f:
         return json.load(f)
+
 
 config = load_config("config.json")
 IP = config["IP"]

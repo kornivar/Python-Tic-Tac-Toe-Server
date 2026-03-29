@@ -20,7 +20,8 @@ class View:
 
         self.root.withdraw()
 
-    def create_main_interface(self):
+
+    def create_main_interface(self) -> None:
         self.root.deiconify()
         self.center(self.root, self.window_width, self.window_height)
         self.root.configure(background="#EAF4F9")
@@ -71,7 +72,8 @@ class View:
 
         self.lock_board("WAITING FOR PLAYERS...")
 
-    def update_avatar(self, image_path):
+
+    def update_avatar(self, image_path: str) -> None:
         try:
             size = (66, 66)
 
@@ -95,14 +97,14 @@ class View:
             self.avatar_canvas.tag_lower("avatar_img", self.avatar_circle)
 
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error in update_avatar function: {e}")
 
 
-    def on_click(self, row, col):
+    def on_click(self, row: int, col: int) -> None:
         self.controller.send_move(row, col)
 
 
-    def update_board(self, field):
+    def update_board(self, field: list) -> None:
         for r in range(3):
             for c in range(3):
                 symbol = ""
@@ -117,14 +119,14 @@ class View:
                 self.buttons[r][c].config(text=symbol, fg=color)
 
 
-    def lock_board(self, status_text="OPPONENT'S TURN"):
+    def lock_board(self, status_text="OPPONENT'S TURN") -> None:
         self.status_label.config(text=status_text)
         for row in self.buttons:
             for btn in row:
                 btn.config(state="disabled")
 
 
-    def unlock_board(self, status_text="YOUR TURN"):
+    def unlock_board(self, status_text="YOUR TURN") -> None:
         self.status_label.config(text=status_text)
         for r in range(3):
             for c in range(3):
@@ -135,7 +137,7 @@ class View:
                     self.buttons[r][c].config(state="disabled")
 
 
-    def show_winner(self, result):
+    def show_winner(self, result: str) -> None:
         if result == "draw":
             messagebox.showinfo("Game Over", "It's a Draw!")
         else:
@@ -144,13 +146,14 @@ class View:
 
 
     @staticmethod
-    def center(window, width, height):
+    def center(window, width: int, height: int) -> None:
         window.update_idletasks()
         x = (window.winfo_screenwidth() - width) // 2
         y = (window.winfo_screenheight() - height) // 2
         window.geometry(f"{width}x{height}+{x}+{y}")
 
-    def update_player_name(self, name):
+
+    def update_player_name(self, name: str) -> None:
         self.root.title(name)
 
 

@@ -8,6 +8,7 @@ class SessionData:
         self.is_active = True
         self.ready_players = set()
 
+
     def check_winner(self):
         field = self.playing_field
         # Rows and columns
@@ -26,12 +27,14 @@ class SessionData:
             return "draw"
         return None
 
+
     def broadcast(self, encrypted_packet):
         for p_id in self.players:
             try:
                 self.players[p_id].conn.sendall(encrypted_packet + b"\n")
-            except:
-                pass
+            except Exception as e:
+                print(f"Error in Session {self._session_id} broadcast function: {e}")
+
 
     @property
     def session_id(self):
