@@ -96,13 +96,16 @@ class Controller:
             self.poll_queue()
             return
 
+        elif not result:
+            self.login_window.show_verif_status("Wrong username or password. Use signup if you dont have an account.")
+
         self.view.root.after(200, self.check_verification)
 
 
     def avatar_selected(self, image_path: str | None) -> None:
-        print("Avatar selected method called in Controller: " + image_path)
 
         if image_path:
+            print("Avatar selected method called in Controller: " + image_path)
             self.model.send_avatar(image_path)
 
         self.view.start()

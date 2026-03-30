@@ -6,6 +6,7 @@ import os
 import hashlib
 import uuid
 import base64
+import pyodbc
 from cryptography.fernet import Fernet
 
 from Server.Classes.ClientData import ClientData
@@ -20,41 +21,33 @@ def load_config(file_path: str) -> dict:
 running = True
 AVATAR_DIR = "Avatars"
 config = load_config("config.json")
-DB_FILE = config["DB_FILE"]
 HOST = config["HOST"]
 PORT = config["PORT"]
 
 key = config["KEY"].encode('utf-8')
 cipher = Fernet(key)
 
+SQL_SERVER = config["SQL_SERVER"]
+SQL_DATABASE = config["SQL_DATABASE"]
+CONN_STR = (
+    f'DRIVER={{ODBC Driver 17 for SQL Server}};'
+    f'SERVER={SQL_SERVER};'
+    f'DATABASE={SQL_DATABASE};'
+    'Trusted_Connection=yes;'
+)
+
 sessions = {}
 session_counter = 0
+
+
+def get_db_connection():
+    return pyodbc.connect(CONN_STR)
 
 
 def hash_password(password: str) -> tuple[str, str]:
     salt = os.urandom(16)
     hash_bytes = hashlib.sha256(salt + password.encode()).digest()
     return salt.hex(), hash_bytes.hex()
-
-
-def load_db() -> dict:
-    if not os.path.exists(DB_FILE):
-        db = {
-            "users": {}
-        }
-
-        with open(DB_FILE, "w") as f:
-            json.dump(db, f, indent=4)
-
-        return db
-
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
-
-
-def save_db(db: dict) -> None:
-    with open(DB_FILE, "w") as f:
-        json.dump(db, f, indent=4)
 
 
 def receive_avatar(conn, username: str, filename: str, size: int) -> None:
@@ -92,94 +85,142 @@ def verification(conn, status: bool) -> None:
         conn.sendall(encrypted_packet + b"\n")
 
 
-def login(conn, username: str, password: str) -> bool:
-    db = load_db()
+def login(conn_socket, username: str, password: str) -> bool:
+    db_conn = None
 
-    if username not in db["users"]:
-        verification(conn, False)
+    try:
+        db_conn = get_db_connection()
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT password_hash, salt FROM Users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+
+        if not row:
+            verification(conn_socket, False)
+            return False
+
+        db_password_hash = row.password_hash
+        db_salt = row.salt
+
+        # Check the password
+        salted_password = bytes.fromhex(db_salt) + password.encode("utf-8")
+        current_hash = hashlib.sha256(salted_password).hexdigest()
+
+        if db_password_hash == current_hash:
+            verification(conn_socket, True)
+            return True
+
+        verification(conn_socket, False)
         return False
 
-    password_bytes = password.encode("utf-8")
-    salt = bytes.fromhex(db["users"][username]["salt"])
-    salted_password: bytes = salt + password_bytes
+    except Exception as e:
+        print(f"Database error during login: {e}")
+        return False
 
-    hashed = hashlib.sha256(salted_password).hexdigest()
+    finally:
+        if db_conn:
+            db_conn.close()
 
-    if db["users"][username]["password"] == hashed:
-        verification(conn, True)
+
+def signup(conn_socket, username: str, password: str) -> bool:
+    salt, hashed = hash_password(password)
+    db_conn = None
+
+    try:
+        db_conn = get_db_connection()
+        cursor = db_conn.cursor()
+
+        # Check if this user already exists
+        cursor.execute("SELECT username FROM Users WHERE username = ?", (username,))
+        if cursor.fetchone():
+            verification(conn_socket, False)
+            return False
+
+        # Add user
+        cursor.execute(
+            "INSERT INTO Users (username, password_hash, salt) VALUES (?, ?, ?)",
+            (username, hashed, salt)
+        )
+
+        # Commit changes to DB and send verification respond
+        db_conn.commit()
+        verification(conn_socket, True)
         return True
 
-    verification(conn, False)
-    return False
-
-
-def signup(conn, username: str, password: str) -> bool:
-    db = load_db()
-
-    if username in db["users"]:
-        verification(conn, False)
+    except Exception as e:
+        print(f"Database error during signup: {e}")
+        if db_conn:
+            db_conn.rollback()  # ROLLBACK changes
+        verification(conn_socket, False)
         return False
-
-    salt, hashed = hash_password(password)
-
-    db["users"][username] = {
-        "password": hashed,
-        "salt": salt,
-        "avatar": None
-    }
-
-    save_db(db)
-
-    verification(conn, True)
-    return True
+    finally:
+        if db_conn:
+            db_conn.close()
 
 
-def send_avatar_to_client(conn, username: str) -> None:
+def send_avatar_to_client(conn_socket, username: str) -> None:
     global cipher
-    db = load_db()
-    user = db["users"].get(username)
+    db_conn = None
+    avatar_path = None
+    try:
+        db_conn = get_db_connection()
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT avatar_path FROM Users WHERE username = ?", (username,))
+        row = cursor.fetchone()
 
-    if not user:
-        pkt = {
-            "type": "avatar",
-            "data": {"exists": False}
-        }
-        conn.sendall((json.dumps(pkt) + '\n').encode())
-        return
+        if row:
+            avatar_path = row
 
-    avatar_path = user.get("avatar")
-    if not avatar_path or not os.path.exists(avatar_path):
+    except Exception as e:
+        print(f"Database error in send_avatar_to_client: {e}")
+
+    finally:
+        if db_conn:
+            db_conn.close()
+
+    try:
+        if not avatar_path or not os.path.exists(avatar_path):
+            packet = {"type": "avatar", "data": {"exists": False}}
+            encrypted_packet = cipher.encrypt(json.dumps(packet).encode('utf-8'))
+            conn_socket.sendall(encrypted_packet + b"\n")
+            return
+
+        with open(avatar_path, "rb") as f:
+            content = base64.b64encode(f.read()).decode("utf-8")
+
         packet = {
             "type": "avatar",
-            "data": {"exists": False}
+            "data": {
+                "exists": True,
+                "filename": os.path.basename(avatar_path),
+                "content": content
+            }
         }
+        encrypted_packet = cipher.encrypt(json.dumps(packet).encode('utf-8'))
+        conn_socket.sendall(encrypted_packet + b"\n")
 
-        packet_bytes = json.dumps(packet).encode('utf-8')
-        encrypted_packet = cipher.encrypt(packet_bytes)
-        conn.sendall(encrypted_packet + b"\n")
-        return
-
-    with open(avatar_path, "rb") as f:
-        content = base64.b64encode(f.read()).decode("utf-8")
-
-    packet = {
-        "type": "avatar",
-        "data": {
-            "exists": True,
-            "filename": os.path.basename(avatar_path),
-            "content": content
-        }
-    }
-    packet_bytes = json.dumps(packet).encode('utf-8')
-    encrypted_packet = cipher.encrypt(packet_bytes)
-    conn.sendall(encrypted_packet + b"\n")
+    except Exception as e:
+        print(f"Error reading or sending avatar file: {e}")
 
 
 def set_avatar(username: str, path: str) -> None:
-    db = load_db()
+    db_conn = None
 
-    db["users"][username]["avatar"] = path
-    save_db(db)
+    try:
+        db_conn = get_db_connection()
+        cursor = db_conn.cursor()
+
+        cursor.execute("UPDATE Users SET avatar_path = ? WHERE username = ?", (path, username))
+        db_conn.commit()
+        print(f"Avatar path updated for user {username}")
+
+    except Exception as e:
+        print(f"Database error in set_avatar: {e}")
+        if db_conn:
+            db_conn.rollback()
+
+    finally:
+        if db_conn:
+            db_conn.close()
 
 
 def handle_admin(conn):
