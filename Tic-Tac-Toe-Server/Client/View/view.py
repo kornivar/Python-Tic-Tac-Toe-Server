@@ -146,8 +146,8 @@ class View:
         self.lock_board("GAME OVER")
 
 
-    def show_error(self, message: str) -> None:
-        messagebox.showerror("Error", message)
+    def show_message(self, message: str) -> None:
+        messagebox.showinfo("Game message", message)
 
 
     @staticmethod

@@ -68,8 +68,11 @@ class Model:
                     elif p_type == "avatar":
                         self.set_avatar(p_data)
 
+                    elif p_type == "game_error":
+                        self.queue.put({"type": "game_error", "data": p_data})
+
                     elif p_type == "error":
-                        self.queue.put({"type": "error", "message": packet.get("message")})
+                        self.queue.put({"type": "error", "data": p_data})
 
                     elif p_type == "response":
                         if hasattr(self, "_callback") and self._callback:
@@ -239,7 +242,6 @@ class Model:
 
 
     def connect(self) -> None:
-        # Attempt to establish connection
         while self.running:
             try:
                 self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

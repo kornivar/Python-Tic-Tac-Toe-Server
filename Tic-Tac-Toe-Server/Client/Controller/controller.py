@@ -32,6 +32,7 @@ class Controller:
             if p_type == "init":
                 self.my_id = p_data["your_id"]
                 self.view.update_player_name(f"Player {self.my_id}")
+                self.view.update_board(p_data["field"])
 
             elif p_type == "game_ready":
                 self.is_game_started = True
@@ -60,8 +61,15 @@ class Controller:
                 if path:
                     self.view.update_avatar(path)
 
+            elif p_type == "game_error":
+                if p_data["message"] == "player disconnected":
+                    self.is_game_started = False
+                    self.view.lock_board("Waiting for a new player...")
+                    self.view.show_message("Opponent disconnected.")
+                    self.model.send_ready(need_avatar=False)
+
             elif p_type == "error":
-                self.view.show_error(p_data["message"])
+                # self.view.show_error(p_data["message"])
                 print(f"Server Error: {p_data["message"]}")
 
         self.root.after(100, self.poll_queue)

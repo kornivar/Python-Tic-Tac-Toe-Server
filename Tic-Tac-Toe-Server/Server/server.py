@@ -1,6 +1,5 @@
 import socket
 import json
-import sqlite3
 import threading
 import time
 import os
@@ -442,11 +441,11 @@ def handle_client(client_data: ClientData, session) -> None:
                 if session.session_id in sessions:
                     del sessions[session.session_id]
             else:
-                session.state = "inactive"
+                session.reset_session()
                 disconnect_msg = {
-                    "type": "error",
+                    "type": "game_error",
                     "data": {
-                        "message": "Opponent disconnected. Game ended."
+                        "message": "player disconnected"
                     }
                 }
                 packet_bytes = json.dumps(disconnect_msg).encode('utf-8')
@@ -492,7 +491,7 @@ def identify(conn) -> str | None:
 
 
 def accept_clients() -> None:
-    global session_counter, running
+    global session_counter, running, sessions
     global admin_obj
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -501,12 +500,9 @@ def accept_clients() -> None:
 
     print(f'Server logic online at {HOST}:{PORT}')
 
-    current_waiting_session = None
-
     while running:
         try:
             conn, addr = server.accept()
-            conn.settimeout(10.0)
             print(f"Connection from {addr}")
 
             role = identify(conn)
@@ -528,34 +524,32 @@ def accept_clients() -> None:
 
             # === SESSIONS FOR CLIENTS ===
 
-            if current_waiting_session is not None:
-                if 1 not in current_waiting_session.players:
-                    current_waiting_session = None
+            target_session = None
+            player_id = 1
 
-            if current_waiting_session is None:
+            for s_id, s_obj in sessions.items():
+                if len(s_obj.players) < 2:
+                    target_session = s_obj
+                    player_id = 1 if 1 not in s_obj.players else 2
+                    break
+
+            if target_session is None:
                 session_counter += 1
-                current_waiting_session = SessionData(session_counter)
-
-                sessions[session_counter] = current_waiting_session
+                target_session = SessionData(session_counter)
+                sessions[session_counter] = target_session
                 player_id = 1
-            else:
-                player_id = 2
 
             client = ClientData(conn, addr, player_id, False)
             client.role = role
-            current_waiting_session.players[player_id] = client
+            target_session.players[player_id] = client
 
-            print(f"Player {player_id} joined session {current_waiting_session.session_id}")
+            print(f"Player {player_id} joined session {target_session.session_id}")
 
-            thread = threading.Thread(
+            threading.Thread(
                 target=handle_client,
-                args=(client, current_waiting_session),
+                args=(client, target_session),
                 daemon=True
-            )
-            thread.start()
-
-            if player_id == 2:
-                current_waiting_session = None
+            ).start()
 
         except Exception as e:
             print(f"Accept error: {e}")

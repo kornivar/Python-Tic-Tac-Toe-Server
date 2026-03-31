@@ -57,6 +57,13 @@ class SessionData:
         else:
             return
 
+
+    def reset_session(self):
+        self.state = "inactive"
+        self.ready_players.clear()
+        self.playing_field = [[0, 0, 0] for _ in range(3)]
+        self.current_turn = 1
+
     @property
     def session_id(self):
         return self._session_id
