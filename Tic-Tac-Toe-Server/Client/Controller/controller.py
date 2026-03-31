@@ -2,6 +2,7 @@ from Client.View.view import View
 from Client.View.login_window import LoginWindow
 from Client.View.upload_pfp_window import UploadPFPWindow
 import tkinter as tk
+import os
 
 class Controller:
     def __init__(self, model, queue):
@@ -9,6 +10,7 @@ class Controller:
         self.queue = queue
 
         self.root = tk.Tk()
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.withdraw()
 
         self.login_window = LoginWindow(self, self.root)
@@ -30,11 +32,10 @@ class Controller:
             if p_type == "init":
                 self.my_id = p_data["your_id"]
                 self.view.update_player_name(f"Player {self.my_id}")
-                self.view.status_label.config(text=f"CONNECTED AS PLAYER {self.my_id}")
 
             elif p_type == "game_ready":
                 self.is_game_started = True
-                if self.my_id == 1:
+                if self.my_id == p_data["first_turn"]:
                     self.view.unlock_board("YOUR TURN")
                 else:
                     self.view.lock_board("WAITING FOR PLAYER 1...")
@@ -60,7 +61,8 @@ class Controller:
                     self.view.update_avatar(path)
 
             elif p_type == "error":
-                print(f"Server Error: {packet.get('message')}")
+                self.view.show_error(p_data["message"])
+                print(f"Server Error: {p_data["message"]}")
 
         self.root.after(100, self.poll_queue)
 
@@ -82,7 +84,10 @@ class Controller:
 
 
     def check_verification(self, result: bool, action: str) -> None:
-        if result and action == "signup":
+        if not result:
+            self.login_window.show_verif_status("Wrong username or password. Use signup if you dont have an account.")
+
+        elif result and action == "signup":
             self.login_window.show_connection("Welcome!")
             self.login_window.root.destroy()
             self.upload_pfp_window.start()
@@ -95,11 +100,6 @@ class Controller:
             self.model.send_ready(need_avatar=True)
             self.poll_queue()
             return
-
-        elif not result:
-            self.login_window.show_verif_status("Wrong username or password. Use signup if you dont have an account.")
-
-        self.view.root.after(200, self.check_verification)
 
 
     def avatar_selected(self, image_path: str | None) -> None:
@@ -137,6 +137,15 @@ class Controller:
         self.root.mainloop()
 
 
-    def stop(self):
+    def on_closing(self):
+        print("Closing client...")
         self.model.stop()
+
+        try:
+            self.model.socket.close()
+        except:
+            pass
+
         self.root.destroy()
+
+        os._exit(0)

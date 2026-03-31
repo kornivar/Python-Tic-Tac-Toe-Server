@@ -7,6 +7,7 @@ class View:
     def __init__(self, controller, root):
         self.controller = controller
         self.root = tk.Toplevel(root)
+        self.root.protocol("WM_DELETE_WINDOW", self.controller.on_closing)
         self.root.title('Tic-Tac-Toe Client')
 
         self.window_width = 400
@@ -143,6 +144,10 @@ class View:
         else:
             messagebox.showinfo("Game Over", f"Player {result} Wins!")
         self.lock_board("GAME OVER")
+
+
+    def show_error(self, message: str) -> None:
+        messagebox.showerror("Error", message)
 
 
     @staticmethod

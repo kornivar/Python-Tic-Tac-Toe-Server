@@ -227,7 +227,7 @@ class Model:
 
 
     def identify(self) -> None:
-        data = "client"
+        data = "user"
         packet = self.to_packet(data, "identify")
         packet_bytes = packet.encode('utf-8')
         encrypted_packet = self.cipher.encrypt(packet_bytes)
@@ -274,6 +274,6 @@ class Model:
         self.running = False
         try:
             self.client.close()
+            print("Client stopped")
         except:
             pass
-        print("Client stopped")

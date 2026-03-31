@@ -1,5 +1,6 @@
 import socket
 import json
+import sqlite3
 import threading
 import time
 import os
@@ -11,6 +12,7 @@ from cryptography.fernet import Fernet
 
 from Server.Classes.ClientData import ClientData
 from Server.Classes.SessionData import SessionData
+from Server.Classes.Admin import Admin
 
 
 def load_config(file_path: str) -> dict:
@@ -36,8 +38,9 @@ CONN_STR = (
     'Trusted_Connection=yes;'
 )
 
-sessions = {}
-session_counter = 0
+sessions: dict = {}
+session_counter: int = 0
+admin_obj: Admin | None = None
 
 
 def get_db_connection():
@@ -85,14 +88,20 @@ def verification(conn, status: bool) -> None:
         conn.sendall(encrypted_packet + b"\n")
 
 
-def login(conn_socket, username: str, password: str) -> bool:
+def login(conn_socket, username: str, password: str, role: str) -> bool:
     db_conn = None
 
     try:
         db_conn = get_db_connection()
         cursor = db_conn.cursor()
-        cursor.execute("SELECT password_hash, salt FROM Users WHERE username = ?", (username,))
-        row = cursor.fetchone()
+        row = None
+
+        if role == "user":
+            cursor.execute("SELECT password_hash, salt FROM Users WHERE username = ?", (username,))
+            row = cursor.fetchone()
+        elif role == "admin":
+            cursor.execute("SELECT password_hash, salt FROM Admins WHERE username = ?", (username,))
+            row = cursor.fetchone()
 
         if not row:
             verification(conn_socket, False)
@@ -223,154 +232,231 @@ def set_avatar(username: str, path: str) -> None:
             db_conn.close()
 
 
-def handle_admin(conn):
-    global cipher
+def handle_admin():
+    global cipher, admin_obj, sessions
 
+    conn = admin_obj.conn
+    buffer = b""
     print("Admin connected")
+
+    stop_event = threading.Event()
+    session_data_sender = threading.Thread(target=admin_obj.update_sessions, args=[sessions, cipher, stop_event], daemon=True)
 
     try:
         while True:
-            packet = {
-                "type": "sessions",
-                "data": list(sessions.keys())
-            }
-            conn.sendall(cipher.encrypt(json.dumps(packet).encode()) + b"\n")
+            try:
+                data = conn.recv(1024)
+                if not data:
+                    break
 
-            time.sleep(2)
+                buffer += data
+
+                while b"\n" in buffer:
+                    message, buffer = buffer.split(b"\n", 1)
+
+                    print(f"SERVER: Received encrypted message from ADMIN: {message}")
+
+                    decrypted = cipher.decrypt(message)
+                    decoded = decrypted.decode("utf-8")
+
+                    packet = json.loads(decoded)
+
+                    p_type = packet.get("type")
+                    p_data = packet.get("data")
+
+                    if p_type == "login":
+                        login_success = login(conn, p_data["username"], p_data["password"], "admin")
+
+                        if login_success:
+                            admin_obj.is_authenticated = True
+                            session_data_sender.start()
+
+            except socket.timeout:
+                continue
+            except (ConnectionResetError, ConnectionAbortedError):
+                print(f"DEBUG: Admin connection reset.")
+                break
 
     except Exception as e:
         print(f"Admin error: {e}")
 
-    conn.close()
+    finally:
+        admin_obj.is_authenticated = False
+
+    stop_event.set()
+    session_data_sender.join(timeout=3)
+
+    if session_data_sender.is_alive():
+        print("Could not close data_sender thread, closing connection without joining")
+    else:
+        print("Joined data_sender thread, closing connection")
+
+    try:
+        conn.close()
+    except Exception as e:
+        print(f"[Could not close connection in ADMIN] Error: {e}")
 
 
 def handle_client(client_data: ClientData, session) -> None:
-    global cipher
+    global cipher, sessions
+
     conn = client_data.conn
     my_id = client_data.id
     buffer = b""
 
     print(f"[Session {session.session_id}] Handler started for Player {my_id}")
 
-    while True:
+    try:
+        while True:
+            try:
+                data = conn.recv(1024)
+                if not data:
+                    print(f"DEBUG: Player {my_id} sent empty data (connection closed).")
+                    break
 
-        try:
-            data = conn.recv(1024)
-            if not data:
+                buffer += data
+
+                while b"\n" in buffer:
+
+                    message, buffer = buffer.split(b"\n", 1)
+
+                    print(f"SERVER: Received encrypted message: {message}")
+
+                    decrypted = cipher.decrypt(message)
+                    decoded = decrypted.decode("utf-8")
+
+                    packet = json.loads(decoded)
+
+                    p_type = packet.get("type")
+                    p_data = packet.get("data")
+
+                    if p_type == "login":
+
+                        login_success = login(conn, p_data["username"], p_data["password"], "user")
+
+                        if login_success:
+                            client_data.is_authenticated = True
+                            client_data.username = p_data["username"]
+
+                    elif p_type == "signup":
+
+                        login_success = signup(conn, p_data["username"], p_data["password"])
+
+                        if login_success:
+                            client_data.is_authenticated = True
+                            client_data.username = p_data["username"]
+
+                    elif p_type == "ready":
+
+                        if client_data.is_authenticated:
+
+                            client_data.is_ready = True
+
+                            need_avatar = bool(p_data.get("need_avatar", False))
+                            print(f"[Session {session.session_id}] Player {my_id} is ready")
+
+                            init_packet = {
+                                "type": "init",
+                                "data": {
+                                    "your_id": my_id,
+                                    "field": session.playing_field
+                                }
+                            }
+                            packet_bytes = json.dumps(init_packet).encode('utf-8')
+                            encrypted_packet = cipher.encrypt(packet_bytes)
+                            conn.sendall(encrypted_packet + b"\n")
+
+                            if need_avatar:
+                                send_avatar_to_client(conn, client_data.username)
+
+                            session.ready_players.add(my_id)
+
+                            if len(session.ready_players) == 2:
+                                session.state = "active"
+                                start_packet = {
+                                    "type": "game_ready",
+                                    "data": {"first_turn": 1}
+                                }
+                                packet_bytes = json.dumps(start_packet).encode('utf-8')
+                                encrypted_packet = cipher.encrypt(packet_bytes)
+                                session.broadcast(encrypted_packet)
+                                print(f"[Session {session.session_id}] All players ready. Game started.")
+
+                        else:
+
+                            error_pkt = {"type": "error", "message": "Login required before ready"}
+                            conn.sendall((json.dumps(error_pkt) + '\n').encode())
+
+                    elif p_type == "move":
+
+                        if not client_data.is_ready:
+                            continue
+
+                        row, col = p_data.get("row"), p_data.get("col")
+                        if my_id == session.current_turn and session.playing_field[row][col] == 0:
+                            session.playing_field[row][col] = my_id
+                            winner = session.check_winner()
+                            session.current_turn = 2 if session.current_turn == 1 else 1
+
+                            update_packet = {
+                                "type": "update",
+                                "data": {
+                                    "field": session.playing_field,
+                                    "next_turn": session.current_turn,
+                                    "winner": winner
+                                }
+                            }
+
+                            packet_bytes = json.dumps(update_packet).encode('utf-8')
+                            encrypted_packet = cipher.encrypt(packet_bytes)
+
+                            session.broadcast(encrypted_packet)
+                        else:
+                            error_packet = {
+                                "type": "error",
+                                "message": "Invalid move"
+                            }
+                            packet_bytes = json.dumps(error_packet).encode('utf-8')
+                            encrypted_packet = cipher.encrypt(packet_bytes)
+                            conn.sendall(encrypted_packet + b"\n")
+
+                    elif p_type == "avatar":
+                        receive_avatar(conn, p_data["username"], p_data["filename"], p_data["size"])
+            except socket.timeout:
+                continue
+            except (ConnectionResetError, ConnectionAbortedError):
+                print(f"DEBUG: Player {my_id} connection reset.")
                 break
 
-            buffer += data
+    except Exception as e:
+        print(f"[Session {session.session_id}] Error for Player {my_id}: {e}")
 
-            while b"\n" in buffer:
+    finally:
+        print(f"[Session {session.session_id}] Player {my_id} disconnected.")
+        with threading.Lock():
+            if my_id in session.players:
+                del session.players[my_id]
 
-                message, buffer = buffer.split(b"\n", 1)
+            if len(session.players) == 0:
+                print(f"[Session {session.session_id}] No players left. Closing session.")
+                if session.session_id in sessions:
+                    del sessions[session.session_id]
+            else:
+                session.state = "inactive"
+                disconnect_msg = {
+                    "type": "error",
+                    "data": {
+                        "message": "Opponent disconnected. Game ended."
+                    }
+                }
+                packet_bytes = json.dumps(disconnect_msg).encode('utf-8')
+                encrypted_packet = cipher.encrypt(packet_bytes)
+                session.broadcast(encrypted_packet)
 
-                print(f"SERVER: Received encrypted message: {message}")
-
-                decrypted = cipher.decrypt(message)
-                decoded = decrypted.decode("utf-8")
-
-                packet = json.loads(decoded)
-
-                p_type = packet.get("type")
-                p_data = packet.get("data")
-
-                if p_type == "login":
-
-                    login_success = login(conn, p_data["username"], p_data["password"])
-
-                    if login_success:
-                        client_data.is_authenticated = True
-                        client_data.username = p_data["username"]
-
-                elif p_type == "signup":
-
-                    login_success = signup(conn, p_data["username"], p_data["password"])
-
-                    if login_success:
-                        client_data.is_authenticated = True
-                        client_data.username = p_data["username"]
-
-                elif p_type == "ready":
-
-                    if client_data.is_authenticated:
-
-                        client_data.is_ready = True
-
-                        need_avatar = bool(p_data.get("need_avatar", False))
-                        print(f"[Session {session.session_id}] Player {my_id} is ready")
-
-                        init_packet = {
-                            "type": "init",
-                            "data": {
-                                "your_id": my_id,
-                                "field": session.playing_field
-                            }
-                        }
-                        packet_bytes = json.dumps(init_packet).encode('utf-8')
-                        encrypted_packet = cipher.encrypt(packet_bytes)
-                        conn.sendall(encrypted_packet + b"\n")
-
-                        if need_avatar:
-                            send_avatar_to_client(conn, client_data.username)
-
-                        session.ready_players.add(my_id)
-
-                        if len(session.ready_players) == 2:
-
-                            start_packet = {
-                                "type": "game_ready",
-                                "data": {"status": "started", "first_turn": 1}
-                            }
-                            session.broadcast(start_packet)
-                            print(f"[Session {session.session_id}] All players ready. Game started.")
-
-                    else:
-
-                        error_pkt = {"type": "error", "message": "Login required before ready"}
-                        conn.sendall((json.dumps(error_pkt) + '\n').encode())
-
-                elif p_type == "move":
-
-                    if not client_data.is_ready:
-                        continue
-
-                    row, col = p_data.get("row"), p_data.get("col")
-                    if my_id == session.current_turn and session.playing_field[row][col] == 0:
-                        session.playing_field[row][col] = my_id
-                        winner = session.check_winner()
-                        session.current_turn = 2 if session.current_turn == 1 else 1
-
-                        update_packet = {
-                            "type": "update",
-                            "data": {
-                                "field": session.playing_field,
-                                "next_turn": session.current_turn,
-                                "winner": winner
-                            }
-                        }
-
-                        packet_bytes = json.dumps(update_packet).encode('utf-8')
-                        encrypted_packet = cipher.encrypt(packet_bytes)
-
-                        session.broadcast(encrypted_packet)
-                    else:
-                        error_packet = {
-                            "type": "error",
-                            "message": "Invalid move"
-                        }
-                        packet_bytes = json.dumps(error_packet).encode('utf-8')
-                        encrypted_packet = cipher.encrypt(packet_bytes)
-                        conn.sendall(encrypted_packet + b"\n")
-
-                elif p_type == "avatar":
-                    receive_avatar(conn, p_data["username"], p_data["filename"], p_data["size"])
-
-        except Exception as e:
-            print(f"[Session {session.session_id}] Error for Player {my_id}: {e}")
-            break
-
-    conn.close()
+    try:
+        conn.close()
+    except Exception as e:
+        print(f"[Could not close connection in {session.session_id}] Error: {e}")
 
 
 def identify(conn) -> str | None:
@@ -407,6 +493,7 @@ def identify(conn) -> str | None:
 
 def accept_clients() -> None:
     global session_counter, running
+    global admin_obj
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
@@ -419,30 +506,43 @@ def accept_clients() -> None:
     while running:
         try:
             conn, addr = server.accept()
+            conn.settimeout(10.0)
             print(f"Connection from {addr}")
 
             role = identify(conn)
 
             if role == "admin":
-                threading.Thread(target=handle_admin, args=(conn,), daemon=True).start()
+                admin = Admin(conn, addr)
+                admin.role = role
+                admin_obj = admin
+                threading.Thread(
+                    target=handle_admin,
+                    daemon=True
+                ).start()
                 continue
 
-            elif role != "client":
+            elif role != "user":
                 print("Unknown role, closing connection")
                 conn.close()
                 continue
 
-            # === ONLY CLIENTS GET SESSIONS ===
+            # === SESSIONS FOR CLIENTS ===
+
+            if current_waiting_session is not None:
+                if 1 not in current_waiting_session.players:
+                    current_waiting_session = None
 
             if current_waiting_session is None:
                 session_counter += 1
                 current_waiting_session = SessionData(session_counter)
+
                 sessions[session_counter] = current_waiting_session
                 player_id = 1
             else:
                 player_id = 2
 
             client = ClientData(conn, addr, player_id, False)
+            client.role = role
             current_waiting_session.players[player_id] = client
 
             print(f"Player {player_id} joined session {current_waiting_session.session_id}")
@@ -465,18 +565,15 @@ def start() -> None:
     global running
     running = True
 
-
     accept_thread = threading.Thread(target=accept_clients, daemon=True)
     accept_thread.start()
 
-    print("Server is active and keeping threads alive...")
     try:
         while running:
-            time.sleep(1)
+            time.sleep(2)
     except KeyboardInterrupt:
         print("Server shutting down...")
         running = False
-
 
 start()
 

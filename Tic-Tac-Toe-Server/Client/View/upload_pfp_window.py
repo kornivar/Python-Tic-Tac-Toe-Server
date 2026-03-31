@@ -9,6 +9,7 @@ class UploadPFPWindow:
         self.controller = controller
 
         self.root = tk.Toplevel(root)
+        self.root.protocol("WM_DELETE_WINDOW", self.controller.on_closing)
         self.root.title("Upload Avatar")
 
         self.window_width = 350

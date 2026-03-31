@@ -7,6 +7,14 @@ class ClientData:
         self.is_authenticated = False
         self.is_ready = False
         self.username = None
+        self.role = None
+
+    def to_dict(self):
+        return {
+            "id": self._id,
+            "is_win": self.is_win,
+            "username": self.username
+        }
 
     @property
     def conn(self):

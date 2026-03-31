@@ -9,7 +9,7 @@ class LoginWindow:
 
         self.root = tk.Toplevel(root)
         self.root.protocol("WM_DELETE_WINDOW", self.controller.on_closing)
-        self.root.title("Login / Register")
+        self.root.title("Admin Login")
         self.window_width = 300
         self.window_height = 180
 
@@ -44,7 +44,7 @@ class LoginWindow:
             self.frame,
             textvariable=self.combo_var,
             state="readonly",
-            values=["login", "signup"],
+            values=["login"],
             width=12
         )
         self.combobox.current(0)
