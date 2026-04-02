@@ -64,6 +64,32 @@ class SessionData:
         self.playing_field = [[0, 0, 0] for _ in range(3)]
         self.current_turn = 1
 
+
+    def pause_session(self, cipher):
+        self.state = "paused"
+        packet = {
+            "type": "admin_command",
+            "data": {"command": "pause"}
+        }
+        packet_bytes = json.dumps(packet).encode('utf-8')
+        encrypted_packet = cipher.encrypt(packet_bytes)
+        self.broadcast(encrypted_packet)
+
+
+    def resume_session(self, cipher):
+        self.state = "active"
+        packet = {
+            "type": "admin_command",
+            "data": {
+                "command": "resume",
+                "next_turn": self.current_turn,
+                "field": self.playing_field
+                }
+        }
+        packet_bytes = json.dumps(packet).encode('utf-8')
+        encrypted_packet = cipher.encrypt(packet_bytes)
+        self.broadcast(encrypted_packet)
+
     @property
     def session_id(self):
         return self._session_id

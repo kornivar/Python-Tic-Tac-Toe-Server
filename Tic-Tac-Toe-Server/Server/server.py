@@ -9,7 +9,7 @@ import base64
 import pyodbc
 from cryptography.fernet import Fernet
 
-from Server.Classes.ClientData import ClientData
+from Server.Classes.Client import Client
 from Server.Classes.SessionData import SessionData
 from Server.Classes.Admin import Admin
 
@@ -39,7 +39,6 @@ CONN_STR = (
 
 sessions: dict = {}
 session_counter: int = 0
-admin_obj: Admin | None = None
 
 
 def get_db_connection():
@@ -50,28 +49,6 @@ def hash_password(password: str) -> tuple[str, str]:
     salt = os.urandom(16)
     hash_bytes = hashlib.sha256(salt + password.encode()).digest()
     return salt.hex(), hash_bytes.hex()
-
-
-def receive_avatar(conn, username: str, filename: str, size: int) -> None:
-    ext = filename.split(".")[-1]
-    unique_name = str(uuid.uuid4()) + "." + ext
-
-    path = os.path.join(AVATAR_DIR, unique_name)
-
-    received = 0
-
-    with open(path, "wb") as f:
-        while received < size:
-
-            chunk = conn.recv(min(4096, size - received))
-
-            if not chunk:
-                break
-
-            f.write(chunk)
-            received += len(chunk)
-
-    set_avatar(username, path)
 
 
 def verification(conn, status: bool) -> None:
@@ -165,6 +142,28 @@ def signup(conn_socket, username: str, password: str) -> bool:
             db_conn.close()
 
 
+def receive_avatar(conn, username: str, filename: str, size: int) -> None:
+    ext = filename.split(".")[-1]
+    unique_name = str(uuid.uuid4()) + "." + ext
+
+    path = os.path.join(AVATAR_DIR, unique_name)
+
+    received = 0
+
+    with open(path, "wb") as f:
+        while received < size:
+
+            chunk = conn.recv(min(4096, size - received))
+
+            if not chunk:
+                break
+
+            f.write(chunk)
+            received += len(chunk)
+
+    set_avatar(username, path)
+
+
 def send_avatar_to_client(conn_socket, username: str) -> None:
     global cipher
     db_conn = None
@@ -231,15 +230,15 @@ def set_avatar(username: str, path: str) -> None:
             db_conn.close()
 
 
-def handle_admin():
-    global cipher, admin_obj, sessions
+def handle_admin(admin: Admin):
+    global cipher, sessions
 
-    conn = admin_obj.conn
+    conn = admin.conn
     buffer = b""
     print("Admin connected")
 
     stop_event = threading.Event()
-    session_data_sender = threading.Thread(target=admin_obj.update_sessions, args=[sessions, cipher, stop_event], daemon=True)
+    session_data_sender = threading.Thread(target=admin.update_sessions, args=[sessions, cipher, stop_event], daemon=True)
 
     try:
         while True:
@@ -267,8 +266,26 @@ def handle_admin():
                         login_success = login(conn, p_data["username"], p_data["password"], "admin")
 
                         if login_success:
-                            admin_obj.is_authenticated = True
+                            admin.is_authenticated = True
                             session_data_sender.start()
+
+                    elif p_type == "admin_command":
+                        session = sessions[p_data["session_id"]]
+
+                        if p_data["state"] == "pause":
+                            if session.state != "paused" or "inactive" or "finished":
+                                session.pause_session(cipher)
+
+                            else:
+                                print("Session cannot be paused")
+
+                        elif p_data["state"] == "resume":
+                            if session.state != "active" or "inactive" or "finished":
+                                session.resume_session(cipher)
+
+                            else:
+                                print("Session cannot be resumed")
+
 
             except socket.timeout:
                 continue
@@ -280,7 +297,7 @@ def handle_admin():
         print(f"Admin error: {e}")
 
     finally:
-        admin_obj.is_authenticated = False
+        admin.is_authenticated = False
 
     stop_event.set()
     session_data_sender.join(timeout=3)
@@ -296,11 +313,11 @@ def handle_admin():
         print(f"[Could not close connection in ADMIN] Error: {e}")
 
 
-def handle_client(client_data: ClientData, session) -> None:
+def handle_client(client: Client, session) -> None:
     global cipher, sessions
 
-    conn = client_data.conn
-    my_id = client_data.id
+    conn = client.conn
+    my_id = client.id
     buffer = b""
 
     print(f"[Session {session.session_id}] Handler started for Player {my_id}")
@@ -334,22 +351,22 @@ def handle_client(client_data: ClientData, session) -> None:
                         login_success = login(conn, p_data["username"], p_data["password"], "user")
 
                         if login_success:
-                            client_data.is_authenticated = True
-                            client_data.username = p_data["username"]
+                            client.is_authenticated = True
+                            client.username = p_data["username"]
 
                     elif p_type == "signup":
 
                         login_success = signup(conn, p_data["username"], p_data["password"])
 
                         if login_success:
-                            client_data.is_authenticated = True
-                            client_data.username = p_data["username"]
+                            client.is_authenticated = True
+                            client.username = p_data["username"]
 
                     elif p_type == "ready":
 
-                        if client_data.is_authenticated:
+                        if client.is_authenticated:
 
-                            client_data.is_ready = True
+                            client.is_ready = True
 
                             need_avatar = bool(p_data.get("need_avatar", False))
                             print(f"[Session {session.session_id}] Player {my_id} is ready")
@@ -358,7 +375,8 @@ def handle_client(client_data: ClientData, session) -> None:
                                 "type": "init",
                                 "data": {
                                     "your_id": my_id,
-                                    "field": session.playing_field
+                                    "field": session.playing_field,
+                                    "next_turn": 1
                                 }
                             }
                             packet_bytes = json.dumps(init_packet).encode('utf-8')
@@ -366,7 +384,7 @@ def handle_client(client_data: ClientData, session) -> None:
                             conn.sendall(encrypted_packet + b"\n")
 
                             if need_avatar:
-                                send_avatar_to_client(conn, client_data.username)
+                                send_avatar_to_client(conn, client.username)
 
                             session.ready_players.add(my_id)
 
@@ -374,7 +392,7 @@ def handle_client(client_data: ClientData, session) -> None:
                                 session.state = "active"
                                 start_packet = {
                                     "type": "game_ready",
-                                    "data": {"first_turn": 1}
+                                    "data": {"next_turn": 1}
                                 }
                                 packet_bytes = json.dumps(start_packet).encode('utf-8')
                                 encrypted_packet = cipher.encrypt(packet_bytes)
@@ -387,8 +405,7 @@ def handle_client(client_data: ClientData, session) -> None:
                             conn.sendall((json.dumps(error_pkt) + '\n').encode())
 
                     elif p_type == "move":
-
-                        if not client_data.is_ready:
+                        if not client.is_ready:
                             continue
 
                         row, col = p_data.get("row"), p_data.get("col")
@@ -413,7 +430,9 @@ def handle_client(client_data: ClientData, session) -> None:
                         else:
                             error_packet = {
                                 "type": "error",
-                                "message": "Invalid move"
+                                "data": {
+                                    "message": "Invalid move"
+                                }
                             }
                             packet_bytes = json.dumps(error_packet).encode('utf-8')
                             encrypted_packet = cipher.encrypt(packet_bytes)
@@ -492,7 +511,6 @@ def identify(conn) -> str | None:
 
 def accept_clients() -> None:
     global session_counter, running, sessions
-    global admin_obj
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
@@ -510,9 +528,9 @@ def accept_clients() -> None:
             if role == "admin":
                 admin = Admin(conn, addr)
                 admin.role = role
-                admin_obj = admin
                 threading.Thread(
                     target=handle_admin,
+                    args=(admin,),
                     daemon=True
                 ).start()
                 continue
@@ -539,7 +557,7 @@ def accept_clients() -> None:
                 sessions[session_counter] = target_session
                 player_id = 1
 
-            client = ClientData(conn, addr, player_id, False)
+            client = Client(conn, addr, player_id, False)
             client.role = role
             target_session.players[player_id] = client
 

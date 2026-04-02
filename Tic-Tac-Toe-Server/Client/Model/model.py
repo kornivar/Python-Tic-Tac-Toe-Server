@@ -78,6 +78,9 @@ class Model:
                         if hasattr(self, "_callback") and self._callback:
                             self._callback(p_data)
 
+                    elif p_type == "admin_command":
+                        self.queue.put({"type": "admin_command", "data": p_data})
+
             except Exception as e:
                 print(f"Receive error: {e}")
                 break

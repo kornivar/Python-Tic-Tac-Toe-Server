@@ -87,6 +87,18 @@ class Model:
                 "data": data
             }
             return json.dumps(packet)
+        elif d_type == "pause":
+            packet = {
+                "type": "admin_command",
+                "data": data
+            }
+            return json.dumps(packet)
+        elif d_type == "resume":
+            packet = {
+                "type": "admin_command",
+                "data": data
+            }
+            return json.dumps(packet)
 
         return None
 
@@ -116,6 +128,30 @@ class Model:
             encrypted_packet = self.cipher.encrypt(packet_bytes)
             self.client.sendall(encrypted_packet + b"\n")
         return
+
+
+    def pause_session(self, session_id: int) -> None:
+        if self.running:
+            data = {
+                "session_id": session_id,
+                "state": "pause"
+            }
+            packet = self.to_packet(data, "pause")
+            packet_bytes = packet.encode('utf-8')
+            encrypted_packet = self.cipher.encrypt(packet_bytes)
+            self.client.sendall(encrypted_packet + b"\n")
+
+
+    def resume_session(self, session_id: int) -> None:
+        if self.running:
+            data = {
+                "session_id": session_id,
+                "state": "resume"
+            }
+            packet = self.to_packet(data, "resume")
+            packet_bytes = packet.encode('utf-8')
+            encrypted_packet = self.cipher.encrypt(packet_bytes)
+            self.client.sendall(encrypted_packet + b"\n")
 
 
     def is_connected(self):

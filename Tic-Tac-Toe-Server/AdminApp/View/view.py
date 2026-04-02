@@ -51,73 +51,86 @@ class View:
             session_id = s_data.get("session_id", s_id)
             player_count = len(s_data.get("players", {}))
             state = s_data.get("state", "inactive")
-
+            btn_state = "normal"
             status_text = None
+            status_color = None
+            btn_text = None
+            btn_bg = None
+            btn_active = None
+            btn_command = None
+
             if state == "active":
                 status_text = "Active"
-            elif state == "inactive":
-                status_text = "Inactive"
-            elif state == "finished":
-                status_text = "Finished"
-
-            status_color = None
-            if state == "inactive":
-                status_color = "#9e263a"
-            elif state == "finished":
-                status_color = "#6c757d"
-            elif state == "active":
                 status_color = "#28a745"
 
-            row_frame = tk.Frame(self.sessions_frame, bg="#F5F9FC", pady=5)
+                btn_text = "Stop"
+                btn_bg = "#FF5F5F"
+                btn_active = "#E14B4B"
+                btn_command = lambda sid=session_id: self.controller.pause_session(sid)
+
+            elif state == "paused":
+                status_text = "Paused"
+                status_color = "#f39c12"
+
+                btn_text = "Start"
+                btn_bg = "#4CAF50"
+                btn_active = "#45a049"
+                btn_command = lambda sid=session_id: self.controller.resume_session(sid)
+
+            elif state == "inactive":
+                status_text = "Inactive"
+                status_color = "#9e263a"
+
+                btn_text = "Inactive"
+                btn_state = "disabled"
+                btn_bg = "#FF5F5F"
+                btn_command = lambda sid=session_id: self.controller.pause_session(sid)
+
+            elif state == "finished":
+                status_text = "Finished"
+                status_color = "#FF5F5F"
+
+                btn_text = "Inactive"
+                btn_state = "disabled"
+                btn_bg = "#FF5F5F"
+                btn_command = lambda sid=session_id: self.controller.pause_session(sid)
+
+            row_frame = tk.Frame(self.sessions_frame, bg="#F5F9FC", pady=3)
             row_frame.pack(fill="x", padx=5, pady=5)
 
-            tk.Label(
-                row_frame,
-                text=f"ID: {session_id}",
-                font=("Arial", 11, "bold"),
-                bg="#F5F9FC",
-                fg="#243B4A",
-                width=10,
-                anchor="w"
-            ).pack(side="left", padx=10)
+            tk.Label(row_frame, text=f"ID: {session_id}", font=("Arial", 11, "bold"),
+                     bg="#F5F9FC", fg="#243B4A", width=10, anchor="w").pack(side="left", padx=3)
 
-            tk.Label(
-                row_frame,
-                text=f"Players: {player_count}/2",
-                font=("Arial", 10),
-                bg="#F5F9FC",
-                fg="#555",
-                width=12
-            ).pack(side="left", padx=10)
+            tk.Label(row_frame, text=f"Players: {player_count}/2", font=("Arial", 10),
+                     bg="#F5F9FC", fg="#555", width=12).pack(side="left", padx=3)
 
-            tk.Label(
-                row_frame,
-                text=status_text,
-                font=("Arial", 10, "italic"),
-                bg="#F5F9FC",
-                fg=status_color,
-                width=10
-            ).pack(side="left", padx=10)
+            tk.Label(row_frame, text=status_text, font=("Arial", 10, "italic"),
+                     bg="#F5F9FC", fg=status_color, width=10).pack(side="left", padx=3)
 
             btn_frame = tk.Frame(row_frame, bg="#F5F9FC")
             btn_frame.pack(side="right")
 
             tk.Button(
                 btn_frame,
-                text="Stop",
-                bg="#FF5F5F",
+                text=btn_text,
+                bg=btn_bg,
+                state=btn_state,
                 fg="white",
-                activebackground="#E14B4B",
-                command=lambda sid=session_id: self.controller.end_session(sid)
-            ).pack(side="right", padx=5)
+                activebackground=btn_active,
+                width=8,
+                font=("Arial", 9, "bold"),
+                command=btn_command
+            ).pack(side="right", padx=3)
 
             tk.Button(
                 btn_frame,
                 text="Details",
                 bg="#D0E4F0",
                 activebackground="#BFDCEB",
+                width=8,
+                font=("Arial", 9),
                 command=lambda sid=session_id: self.controller.show_details(sid)
-            ).pack(side="right", padx=1)
+            ).pack(side="right", padx=3)
 
 
     @staticmethod

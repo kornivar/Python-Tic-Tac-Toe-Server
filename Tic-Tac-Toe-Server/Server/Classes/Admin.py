@@ -10,6 +10,7 @@ class Admin:
         self.role = None
         self.last_sessions_hash = None
 
+
     def update_sessions(self, sessions, cipher, stop_event):
         while not stop_event.is_set():
             try:

@@ -16,10 +16,10 @@ class Controller:
         self.login_window = LoginWindow(self, self.root)
         self.upload_pfp_window = UploadPFPWindow(self, self.root)
         self.view = View(self, self.root)
-        self.my_id = None
-        self.is_game_started = False
 
-        self.flag = False
+        self.my_id: int | None = None
+        self.is_game_started: bool = False
+        self.flag: bool = False
 
 
     def poll_queue(self) -> None:
@@ -36,25 +36,14 @@ class Controller:
 
             elif p_type == "game_ready":
                 self.is_game_started = True
-                if self.my_id == p_data["first_turn"]:
-                    self.view.unlock_board("YOUR TURN")
-                else:
-                    self.view.lock_board("WAITING FOR PLAYER 1...")
-
-            elif p_type == "update":
-                field = p_data["field"]
-                next_turn = p_data["next_turn"]
-                winner = p_data["winner"]
-
-                self.view.update_board(field)
-
-                if winner:
-                    self.view.show_winner(winner)
-                    self.is_game_started = False
-                elif next_turn == self.my_id:
+                if self.my_id == p_data["next_turn"]:
                     self.view.unlock_board("YOUR TURN")
                 else:
                     self.view.lock_board("OPPONENT'S TURN")
+
+            elif p_type == "update":
+                self.last_update = p_data
+                self.update_game_state(p_data)
 
             elif p_type == "avatar":
                 path = p_data.get("path")
@@ -72,7 +61,30 @@ class Controller:
                 # self.view.show_error(p_data["message"])
                 print(f"Server Error: {p_data["message"]}")
 
+            elif p_type == "admin_command":
+
+                if p_data["command"] == "pause":
+                    self.view.lock_board("Your game was stopped by admin.")
+
+                if p_data["command"] == "resume":
+                    self.update_game_state(p_data)
+
         self.root.after(100, self.poll_queue)
+
+
+    def update_game_state(self, p_data: dict) -> None:
+        field = p_data["field"]
+        next_turn = p_data["next_turn"]
+        winner = p_data["winner"] if "winner" in p_data else None
+
+        self.view.update_board(field)
+
+        if winner is not None:
+            self.view.show_winner(winner)
+        elif next_turn == self.my_id:
+            self.view.unlock_board("YOUR TURN")
+        else:
+            self.view.lock_board("OPPONENT'S TURN")
 
 
     def send_move(self, row: int, col: int) -> None:

@@ -82,6 +82,14 @@ class Controller:
         self.view.root.after(1000, self.is_connected)
 
 
+    def pause_session(self, session_id: int) -> None:
+        self.model.pause_session(session_id)
+
+
+    def resume_session(self, session_id: int) -> None:
+        self.model.resume_session(session_id)
+
+
     def start(self):
         self.model.start()
         self.login_window.start()
