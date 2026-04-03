@@ -1,5 +1,6 @@
 from AdminApp.View.view import View
 from AdminApp.View.login_window import LoginWindow
+from AdminApp.View.details_window import DetailsWindow
 import tkinter as tk
 import os
 
@@ -13,10 +14,11 @@ class Controller:
         self.root.withdraw()
 
         self.login_window = LoginWindow(self, self.root)
-
+        self.details_window = DetailsWindow(self, self.root)
         self.view = View(self, self.root)
 
         self.flag = False
+        self.current_sessions = {}
 
 
     def poll_queue(self) -> None:
@@ -35,9 +37,21 @@ class Controller:
                 #     self.view.update_sessions(sessions)
 
             elif p_type == "update":
-                sessions = p_data
-                if sessions is not None:
-                    self.view.update_sessions(sessions)
+                self.current_sessions = p_data["sessions"]
+                current_banned = p_data.get("banned_users", [])
+
+                if self.current_sessions is not None:
+                    self.view.update_sessions(self.current_sessions)
+
+                # self.view.update_blacklist(p_data["banned_users"])
+
+                if self.details_window.root.winfo_viewable() and self.details_window.session_id:
+                    s_id = str(self.details_window.session_id)
+
+                    if s_id in self.current_sessions:
+                        self.details_window.update_info(self.current_sessions[s_id])
+                    else:
+                        self.details_window.hide_window()
 
             elif p_type == "error":
                 print(f"Server Error: {packet.get('message')}")
@@ -88,6 +102,18 @@ class Controller:
 
     def resume_session(self, session_id: int) -> None:
         self.model.resume_session(session_id)
+
+
+    def toggle_ban(self, session_id: int, user_id: int, username: str, should_ban: bool) -> None:
+        action = "ban" if should_ban else "unban"
+        print(f"Controller: {action} user {user_id}")
+        self.model.send_ban_command(session_id, user_id, username, action)
+
+
+    def show_details(self, session_id: int) -> None:
+        s_id_str = str(session_id)
+        if s_id_str in self.current_sessions:
+            self.details_window.start(self.current_sessions[s_id_str])
 
 
     def start(self):

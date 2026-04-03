@@ -13,7 +13,6 @@ from Server.Classes.Client import Client
 from Server.Classes.SessionData import SessionData
 from Server.Classes.Admin import Admin
 
-
 def load_config(file_path: str) -> dict:
     with open(file_path, "r") as f:
         return json.load(f)
@@ -37,12 +36,27 @@ CONN_STR = (
     'Trusted_Connection=yes;'
 )
 
-sessions: dict = {}
-session_counter: int = 0
-
 
 def get_db_connection():
     return pyodbc.connect(CONN_STR)
+
+def load_banned_users():
+    db_conn = None
+    try:
+        db_conn = get_db_connection()
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT username FROM Users WHERE is_banned = 1")
+        return [row.username for row in cursor.fetchall()]
+    except Exception as e:
+        print(f"Error loading banned users: {e}")
+        return []
+    finally:
+        if db_conn: db_conn.close()
+
+
+sessions: dict = {}
+banned_users: list = load_banned_users()
+session_counter: int = 0
 
 
 def hash_password(password: str) -> tuple[str, str]:
@@ -54,6 +68,7 @@ def hash_password(password: str) -> tuple[str, str]:
 def verification(conn, status: bool) -> None:
     global running
     global cipher
+
     if running:
         packet = {
             "type": "response",
@@ -64,7 +79,29 @@ def verification(conn, status: bool) -> None:
         conn.sendall(encrypted_packet + b"\n")
 
 
+def send_banned_warning(conn) -> None:
+    global running
+    global cipher
+
+    if running:
+        packet = {
+            "type": "response",
+            "data": "banned"
+        }
+
+        packet_bytes = json.dumps(packet).encode('utf-8')
+        encrypted_packet = cipher.encrypt(packet_bytes)
+        conn.sendall(encrypted_packet + b"\n")
+
 def login(conn_socket, username: str, password: str, role: str) -> bool:
+    if username in banned_users:
+        print(f"Login denied for banned user: {username}")
+        send_banned_warning(conn_socket)
+        # verification(conn_socket, False)
+        time.sleep(0.1)
+        conn_socket.close()
+        return False
+
     db_conn = None
 
     try:
@@ -230,15 +267,38 @@ def set_avatar(username: str, path: str) -> None:
             db_conn.close()
 
 
+def update_user_ban_status(username: str, status: bool):
+    db_conn = None
+    try:
+        db_conn = get_db_connection()
+        cursor = db_conn.cursor()
+        cursor.execute("UPDATE Users SET is_banned = ? WHERE username = ?", (1 if status else 0, username))
+        db_conn.commit()
+
+        global banned_users
+        if status and username not in banned_users:
+            banned_users.append(username)
+        elif not status and username in banned_users:
+            banned_users.remove(username)
+
+        print(f"Database: User {username} ban status updated to {status}")
+        return True
+    except Exception as e:
+        print(f"Database error while updating ban: {e}")
+        return False
+    finally:
+        if db_conn: db_conn.close()
+
+
 def handle_admin(admin: Admin):
-    global cipher, sessions
+    global cipher, sessions, banned_users
 
     conn = admin.conn
     buffer = b""
     print("Admin connected")
 
     stop_event = threading.Event()
-    session_data_sender = threading.Thread(target=admin.update_sessions, args=[sessions, cipher, stop_event], daemon=True)
+    session_data_sender = threading.Thread(target=admin.update_sessions, args=[sessions, banned_users, cipher, stop_event], daemon=True)
 
     try:
         while True:
@@ -270,22 +330,56 @@ def handle_admin(admin: Admin):
                             session_data_sender.start()
 
                     elif p_type == "admin_command":
-                        session = sessions[p_data["session_id"]]
+                        s_id = p_data.get("session_id")
 
-                        if p_data["state"] == "pause":
-                            if session.state != "paused" or "inactive" or "finished":
-                                session.pause_session(cipher)
+                        try:
+                            s_id = int(s_id)
+                        except:
+                            pass
 
-                            else:
-                                print("Session cannot be paused")
+                        if s_id not in sessions:
+                            print(f"Admin tried to manage non-existent session {s_id}")
+                            continue
 
-                        elif p_data["state"] == "resume":
-                            if session.state != "active" or "inactive" or "finished":
-                                session.resume_session(cipher)
+                        session = sessions[s_id]
 
-                            else:
-                                print("Session cannot be resumed")
+                        if p_data["type"] == "session":
+                            state_cmd = p_data["state"]
+                            if state_cmd == "pause":
+                                if session.state not in ["paused", "inactive", "finished"]:
+                                    session.pause_session(cipher)
+                                else:
+                                    print(f"Session {s_id} cannot be paused from state {session.state}")
 
+                            elif state_cmd == "resume":
+                                if session.state == "paused":
+                                    session.resume_session(cipher)
+                                else:
+                                    print(f"Session {s_id} is not paused")
+
+                        elif p_data["type"] == "user":
+                            u_id_raw = p_data.get("user_id")
+                            u_name = p_data.get("username")
+
+                            try:
+                                u_id = int(u_id_raw)
+                            except (ValueError, TypeError):
+                                u_id = u_id_raw
+
+                            if p_data["action"] == "ban":
+                                if update_user_ban_status(u_name, True):
+
+                                    print(f"User {u_name} banned.")
+
+                                    if u_id in session.players:
+                                        session.remove_player_from_session(u_id, sessions, cipher)
+                                        print(f"User {u_name} kicked from active session.")
+                                    else:
+                                        print(f"DEBUG: Player {u_id} ({type(u_id)}) not found in {list(session.players.keys())}")
+
+                            elif p_data["action"] == "unban":
+                                update_user_ban_status(u_name, False)
+                                print(f"User {u_name} unbanned.")
 
             except socket.timeout:
                 continue
@@ -400,7 +494,6 @@ def handle_client(client: Client, session) -> None:
                                 print(f"[Session {session.session_id}] All players ready. Game started.")
 
                         else:
-
                             error_pkt = {"type": "error", "message": "Login required before ready"}
                             conn.sendall((json.dumps(error_pkt) + '\n').encode())
 
@@ -521,6 +614,7 @@ def accept_clients() -> None:
     while running:
         try:
             conn, addr = server.accept()
+            conn.settimeout(5.0)
             print(f"Connection from {addr}")
 
             role = identify(conn)

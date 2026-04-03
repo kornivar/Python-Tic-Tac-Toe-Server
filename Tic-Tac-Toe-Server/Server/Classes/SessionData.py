@@ -1,4 +1,8 @@
 import json
+
+from pip._internal.network import session
+
+
 class SessionData:
     def __init__(self, session_id):
         self._session_id = session_id
@@ -89,6 +93,33 @@ class SessionData:
         packet_bytes = json.dumps(packet).encode('utf-8')
         encrypted_packet = cipher.encrypt(packet_bytes)
         self.broadcast(encrypted_packet)
+
+    def remove_player_from_session(self, user_id: int, sessions_dict: dict, cipher):
+        if user_id in self.players:
+            conn_to_close = self.players[user_id].conn
+            del self.players[user_id]
+
+            try:
+                conn_to_close.close()
+            except:
+                pass
+
+        if len(self.players) == 0:
+            if self._session_id in sessions_dict:
+                del sessions_dict[self._session_id]
+                print(f"Session {self._session_id} deleted (no players left).")
+        else:
+            self.reset_session()
+            disconnect_msg = {
+                "type": "game_error",
+                "data": {"message": "Your opponent was banned and kicked."}
+            }
+            packet_bytes = json.dumps(disconnect_msg).encode('utf-8')
+            try:
+                self.broadcast(cipher.encrypt(packet_bytes))
+            except:
+                pass
+
 
     @property
     def session_id(self):

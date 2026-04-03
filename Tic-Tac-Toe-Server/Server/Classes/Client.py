@@ -14,8 +14,17 @@ class Client:
         return {
             "id": self._id,
             "is_win": self.is_win,
-            "username": self.username
+            "username": self.username,
+            "is_banned": self.is_banned,
         }
+
+
+    def ban_unban(self, action: str):
+        if action == "ban":
+            self.is_banned = True
+        else:
+            self.is_banned = False
+
 
     @property
     def conn(self):

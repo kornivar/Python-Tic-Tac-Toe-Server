@@ -87,13 +87,7 @@ class Model:
                 "data": data
             }
             return json.dumps(packet)
-        elif d_type == "pause":
-            packet = {
-                "type": "admin_command",
-                "data": data
-            }
-            return json.dumps(packet)
-        elif d_type == "resume":
+        elif d_type == "admin_command":
             packet = {
                 "type": "admin_command",
                 "data": data
@@ -133,10 +127,11 @@ class Model:
     def pause_session(self, session_id: int) -> None:
         if self.running:
             data = {
+                "type": "session",
                 "session_id": session_id,
                 "state": "pause"
             }
-            packet = self.to_packet(data, "pause")
+            packet = self.to_packet(data, "admin_command")
             packet_bytes = packet.encode('utf-8')
             encrypted_packet = self.cipher.encrypt(packet_bytes)
             self.client.sendall(encrypted_packet + b"\n")
@@ -145,10 +140,11 @@ class Model:
     def resume_session(self, session_id: int) -> None:
         if self.running:
             data = {
+                "type": "session",
                 "session_id": session_id,
                 "state": "resume"
             }
-            packet = self.to_packet(data, "resume")
+            packet = self.to_packet(data, "admin_command")
             packet_bytes = packet.encode('utf-8')
             encrypted_packet = self.cipher.encrypt(packet_bytes)
             self.client.sendall(encrypted_packet + b"\n")
@@ -170,6 +166,20 @@ class Model:
         packet_bytes = json.dumps(packet).encode('utf-8')
         encrypted_packet = self.cipher.encrypt(packet_bytes)
 
+        self.client.sendall(encrypted_packet + b"\n")
+
+
+    def send_ban_command(self, session_id:int,  user_id: str, username: str, action:str) -> None:
+        data = {
+            "type": "user",
+            "session_id": session_id,
+            "user_id": user_id,
+            "username": username,
+            "action": action
+        }
+        packet = self.to_packet(data, "admin_command")
+        packet_bytes = packet.encode('utf-8')
+        encrypted_packet = self.cipher.encrypt(packet_bytes)
         self.client.sendall(encrypted_packet + b"\n")
 
 

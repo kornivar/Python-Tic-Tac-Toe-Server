@@ -1,3 +1,5 @@
+import time
+
 from Client.View.view import View
 from Client.View.login_window import LoginWindow
 from Client.View.upload_pfp_window import UploadPFPWindow
@@ -103,9 +105,15 @@ class Controller:
         self.model.verification(username, password, action, callback=cb)
 
 
-    def check_verification(self, result: bool, action: str) -> None:
+    def check_verification(self, result: bool | str, action: str) -> None:
         if not result:
             self.login_window.show_verif_status("Wrong username or password. Use signup if you dont have an account.")
+
+        if result == "banned":
+            self.login_window.show_verif_status("YOU ARE BANNED! (☞ﾟヮﾟ)☞")
+            time.sleep(3)
+            self.on_closing()
+            return
 
         elif result and action == "signup":
             self.login_window.show_connection("Welcome!")
@@ -120,6 +128,7 @@ class Controller:
             self.model.send_ready(need_avatar=True)
             self.poll_queue()
             return
+
 
 
     def avatar_selected(self, image_path: str | None) -> None:

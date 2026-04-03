@@ -45,7 +45,7 @@ class View:
         for widget in self.sessions_frame.winfo_children():
             widget.destroy()
 
-        # sessions{ "1": {"session_id": 1, "players": {...}, "state": True}, ... }
+        # sessions{ "1": {"session_id": 1, "players": {...}, "state": "active"}, ... }
         for s_id, s_data in sessions.items():
 
             session_id = s_data.get("session_id", s_id)
