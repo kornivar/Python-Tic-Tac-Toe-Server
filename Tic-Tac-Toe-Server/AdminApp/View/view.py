@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 
 
 class View:
@@ -9,24 +10,62 @@ class View:
         self.root.title('Admin Panel')
 
         self.window_width = 500
-        self.window_height = 600
+        self.window_height = 700
 
         self.sessions_frame = None
 
         self.root.withdraw()
+
 
     def create_main_interface(self) -> None:
         self.root.deiconify()
         self.center(self.root, self.window_width, self.window_height)
         self.root.configure(background="#EAF4F9")
 
-        top_bar = tk.Frame(self.root, bg="#EAF4F9", padx=20, pady=15)
+        # --- Top bar ---
+        top_bar = tk.Frame(self.root, bg="#EAF4F9", padx=20, pady=10)
         top_bar.pack(fill="x")
 
         tk.Label(
-            top_bar, text="Game Sessions Dashboard",
+            top_bar, text="Active Sessions",
             font=("Arial", 14, "bold"), bg="#EAF4F9", fg="#243B4A"
         ).pack()
+
+        # --- Search Bar ---
+        search_frame = tk.Frame(self.root, bg="#EAF4F9", padx=20, pady=5)
+        search_frame.pack(fill="x")
+
+        self.search_entry = tk.Entry(search_frame, font=("Arial", 10), width=36)
+        self.search_entry.pack(side="left", padx=(0, 5))
+
+        self.search_type = ttk.Combobox(
+            search_frame,
+            values=["Session ID", "Username"],
+            state="readonly",
+            width=10,
+            font=("Arial", 9)
+        )
+        self.search_type.current(0)
+        self.search_type.pack(side="left", padx=5)
+
+        tk.Button(
+            search_frame,
+            text="Search",
+            bg="#D0E4F0",
+            font=("Arial", 9, "bold"),
+            command=lambda: self.controller.search_sessions(
+                self.search_entry.get(),
+                self.search_type.get()
+            )
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            search_frame,
+            text="↺",
+            bg="#fde2e2",
+            width=3,
+            command=self.controller.reset_search
+        ).pack(side="left")
 
         container = tk.Frame(self.root, bg="#BFDCEB", padx=10, pady=5)
         container.pack(fill="both", expand=True, padx=20, pady=(0, 10))
@@ -51,14 +90,25 @@ class View:
         self.blacklist_btn.pack(side="right")
 
 
-
-    def update_sessions(self, sessions: dict) -> None:
+    def update_sessions(self, sessions: dict, query = "", category = "Session ID") -> None:
         for widget in self.sessions_frame.winfo_children():
             widget.destroy()
 
-        # sessions{ "1": {"session_id": 1, "players": {...}, "state": "active"}, ... }
         for s_id, s_data in sessions.items():
+            # Filter
+            if query:
+                if category == "Session ID":
+                    print("Searching sessions...")
+                    if query not in str(s_id).lower():
+                        continue
+                elif category == "Username":
+                    print("Searching usernames...")
+                    players = s_data.get("players", {})
+                    match_found = any(query in p.get("username", "").lower() for p in players.values())
+                    if not match_found:
+                        continue
 
+            # sessions{ "1": {"session_id": 1, "players": {...}, "state": "active"}, ... }
             session_id = s_data.get("session_id", s_id)
             player_count = len(s_data.get("players", {}))
             state = s_data.get("state", "inactive")

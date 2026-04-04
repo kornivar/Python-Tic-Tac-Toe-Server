@@ -22,6 +22,8 @@ class Controller:
         self.flag = False
         self.current_sessions = {}
         self.banned_users = []
+        self.search_query = ""
+        self.search_category = "Session ID"
 
 
     def poll_queue(self) -> None:
@@ -110,20 +112,31 @@ class Controller:
         self.blacklist_window.show()
 
 
-    def unban_user(self, username: str) -> None:
-        self.model.send_ban_unban_command(username=username, action="unban")
-
-
-    def toggle_ban(self, session_id: int, user_id: int, username: str, should_ban: bool) -> None:
+    def toggle_ban(self, session_id: int | None, user_id: int | None, username: str, should_ban: bool) -> None:
         action = "ban" if should_ban else "unban"
-        print(f"Controller: {action} user {user_id}")
-        self.model.send_ban_unban_command(session_id, user_id, username, action)
+        print(f"Controller: {action} user {username}")
+        if session_id is not None:
+            self.model.send_ban_unban_command(session_id, user_id, username, action)
+        else:
+            self.model.send_ban_unban_command(session_id=None, user_id=None, username=username, action=action)
 
 
     def show_details(self, session_id: int) -> None:
         s_id_str = str(session_id)
         if s_id_str in self.current_sessions:
             self.details_window.start(self.current_sessions[s_id_str])
+
+
+    def search_sessions(self, query, category):
+        print("Entered search function in controller")
+        self.search_query = query.strip().lower()
+        self.search_category = category
+        self.view.update_sessions(self.current_sessions, self.search_query, self.search_category)
+
+    def reset_search(self):
+        self.search_query = ""
+        self.view.search_entry.delete(0, tk.END)
+        self.view.update_sessions(self.current_sessions, self.search_query, self.search_category)
 
 
     def start(self):

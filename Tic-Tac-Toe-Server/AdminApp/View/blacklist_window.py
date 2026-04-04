@@ -42,7 +42,7 @@ class BlacklistWindow:
 
             tk.Button(
                 row, text="Unban", bg="#4CAF50", fg="white", font=("Arial", 8, "bold"),
-                command=lambda u=username: self.controller.unban_user(u)
+                command=lambda u=username: self.controller.toggle_ban(session_id=None, user_id=None, username=u, should_ban=False)
             ).pack(side="right")
 
 

@@ -169,7 +169,7 @@ class Model:
         self.client.sendall(encrypted_packet + b"\n")
 
 
-    def send_ban_unban_command(self, session_id = None, user_id= None, username = None, action = None) -> None:
+    def send_ban_unban_command(self, session_id: int | None, user_id: int | None, username: str, action: str) -> None:
         data = {
             "type": "user",
             "session_id": session_id,
@@ -177,6 +177,7 @@ class Model:
             "username": username,
             "action": action
         }
+
         packet = self.to_packet(data, "admin_command")
         packet_bytes = packet.encode('utf-8')
         encrypted_packet = self.cipher.encrypt(packet_bytes)
