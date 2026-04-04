@@ -15,31 +15,42 @@ class View:
 
         self.root.withdraw()
 
-
     def create_main_interface(self) -> None:
         self.root.deiconify()
         self.center(self.root, self.window_width, self.window_height)
         self.root.configure(background="#EAF4F9")
 
-        # Top bar
         top_bar = tk.Frame(self.root, bg="#EAF4F9", padx=20, pady=15)
         top_bar.pack(fill="x")
 
-        title = tk.Label(
-            top_bar,
-            text="Game Sessions",
-            font=("Arial", 14, "bold"),
-            bg="#EAF4F9",
-            fg="#243B4A"
-        )
-        title.pack()
+        tk.Label(
+            top_bar, text="Game Sessions Dashboard",
+            font=("Arial", 14, "bold"), bg="#EAF4F9", fg="#243B4A"
+        ).pack()
 
-        # Sessions container (center)
-        container = tk.Frame(self.root, bg="#BFDCEB", padx=10, pady=10)
-        container.pack(expand=True, fill="both", padx=20, pady=10)
+        container = tk.Frame(self.root, bg="#BFDCEB", padx=10, pady=5)
+        container.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
         self.sessions_frame = tk.Frame(container, bg="#BFDCEB")
         self.sessions_frame.pack(fill="both", expand=True)
+
+        bottom_bar = tk.Frame(self.root, bg="#EAF4F9", padx=20, pady=10)
+        bottom_bar.pack(fill="x", side="bottom")
+
+        self.blacklist_btn = tk.Button(
+            bottom_bar,
+            text="Manage Blacklist",
+            font=("Arial", 10, "bold"),
+            bg="#243B4A",
+            fg="white",
+            activebackground="#34495E",
+            activeforeground="white",
+            padx=15,
+            command=self.controller.show_blacklist
+        )
+        self.blacklist_btn.pack(side="right")
+
+
 
     def update_sessions(self, sessions: dict) -> None:
         for widget in self.sessions_frame.winfo_children():

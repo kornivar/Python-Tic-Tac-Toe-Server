@@ -330,18 +330,20 @@ def handle_admin(admin: Admin):
                             session_data_sender.start()
 
                     elif p_type == "admin_command":
-                        s_id = p_data.get("session_id")
+                        s_id = p_data.get("session_id", None)
+                        session = None
 
-                        try:
-                            s_id = int(s_id)
-                        except:
-                            pass
+                        if s_id:
+                            try:
+                                s_id = int(s_id)
+                            except:
+                                pass
 
-                        if s_id not in sessions:
-                            print(f"Admin tried to manage non-existent session {s_id}")
-                            continue
+                            if s_id not in sessions:
+                                print(f"Admin tried to manage non-existent session {s_id}")
+                                continue
 
-                        session = sessions[s_id]
+                            session = sessions[s_id]
 
                         if p_data["type"] == "session":
                             state_cmd = p_data["state"]
@@ -358,13 +360,15 @@ def handle_admin(admin: Admin):
                                     print(f"Session {s_id} is not paused")
 
                         elif p_data["type"] == "user":
-                            u_id_raw = p_data.get("user_id")
+                            u_id_raw = p_data.get("user_id", None)
                             u_name = p_data.get("username")
+                            u_id = None
 
-                            try:
-                                u_id = int(u_id_raw)
-                            except (ValueError, TypeError):
-                                u_id = u_id_raw
+                            if u_id_raw:
+                                try:
+                                    u_id = int(u_id_raw)
+                                except (ValueError, TypeError):
+                                    u_id = u_id_raw
 
                             if p_data["action"] == "ban":
                                 if update_user_ban_status(u_name, True):

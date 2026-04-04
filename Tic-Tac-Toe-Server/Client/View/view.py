@@ -131,7 +131,6 @@ class View:
         self.status_label.config(text=status_text)
         for r in range(3):
             for c in range(3):
-                # Only unlock if the cell is empty (empty string)
                 if self.buttons[r][c].cget("text") == "":
                     self.buttons[r][c].config(state="normal")
                 else:

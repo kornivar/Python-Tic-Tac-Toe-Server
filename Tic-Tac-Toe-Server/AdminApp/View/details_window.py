@@ -1,8 +1,4 @@
 import tkinter as tk
-from ast import Str
-from tkinter import ttk
-from tkinter import messagebox
-
 
 class DetailsWindow:
     def __init__(self, controller, root):

@@ -169,7 +169,7 @@ class Model:
         self.client.sendall(encrypted_packet + b"\n")
 
 
-    def send_ban_command(self, session_id:int,  user_id: str, username: str, action:str) -> None:
+    def send_ban_unban_command(self, session_id = None, user_id= None, username = None, action = None) -> None:
         data = {
             "type": "user",
             "session_id": session_id,
