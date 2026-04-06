@@ -91,107 +91,115 @@ class View:
 
 
     def update_sessions(self, sessions: dict, query = "", category = "Session ID") -> None:
-        for widget in self.sessions_frame.winfo_children():
-            widget.destroy()
+        if not self.sessions_frame or not self.root.winfo_exists():
+            return
 
-        for s_id, s_data in sessions.items():
-            # Filter
-            if query:
-                if category == "Session ID":
-                    print("Searching sessions...")
-                    if query not in str(s_id).lower():
-                        continue
-                elif category == "Username":
-                    print("Searching usernames...")
-                    players = s_data.get("players", {})
-                    match_found = any(query in p.get("username", "").lower() for p in players.values())
-                    if not match_found:
-                        continue
+        try:
+            for widget in list(self.sessions_frame.winfo_children()):
+                if widget.winfo_exists():
+                    widget.destroy()
 
-            # sessions{ "1": {"session_id": 1, "players": {...}, "state": "active"}, ... }
-            session_id = s_data.get("session_id", s_id)
-            player_count = len(s_data.get("players", {}))
-            state = s_data.get("state", "inactive")
-            btn_state = "normal"
-            status_text = None
-            status_color = None
-            btn_text = None
-            btn_bg = None
-            btn_active = None
-            btn_command = None
+            for s_id, s_data in sessions.items():
+                # Filter
+                if query:
+                    if category == "Session ID":
+                        print("Searching sessions...")
+                        if query not in str(s_id).lower():
+                            continue
+                    elif category == "Username":
+                        print("Searching usernames...")
+                        players = s_data.get("players", {})
+                        match_found = any(query in p.get("username", "").lower() for p in players.values())
+                        if not match_found:
+                            continue
 
-            if state == "active":
-                status_text = "Active"
-                status_color = "#28a745"
+                # sessions{ "1": {"session_id": 1, "players": {...}, "state": "active"}, ... }
+                session_id = s_data.get("session_id", s_id)
+                player_count = len(s_data.get("players", {}))
+                state = s_data.get("state", "inactive")
+                btn_state = "normal"
+                status_text = None
+                status_color = None
+                btn_text = None
+                btn_bg = None
+                btn_active = None
+                btn_command = None
 
-                btn_text = "Stop"
-                btn_bg = "#FF5F5F"
-                btn_active = "#E14B4B"
-                btn_command = lambda sid=session_id: self.controller.pause_session(sid)
+                if state == "active":
+                    status_text = "Active"
+                    status_color = "#28a745"
 
-            elif state == "paused":
-                status_text = "Paused"
-                status_color = "#f39c12"
+                    btn_text = "Stop"
+                    btn_bg = "#FF5F5F"
+                    btn_active = "#E14B4B"
+                    btn_command = lambda sid=session_id: self.controller.pause_session(sid)
 
-                btn_text = "Start"
-                btn_bg = "#4CAF50"
-                btn_active = "#45a049"
-                btn_command = lambda sid=session_id: self.controller.resume_session(sid)
+                elif state == "paused":
+                    status_text = "Paused"
+                    status_color = "#f39c12"
 
-            elif state == "inactive":
-                status_text = "Inactive"
-                status_color = "#9e263a"
+                    btn_text = "Start"
+                    btn_bg = "#4CAF50"
+                    btn_active = "#45a049"
+                    btn_command = lambda sid=session_id: self.controller.resume_session(sid)
 
-                btn_text = "Inactive"
-                btn_state = "disabled"
-                btn_bg = "#FF5F5F"
-                btn_command = lambda sid=session_id: self.controller.pause_session(sid)
+                elif state == "inactive":
+                    status_text = "Inactive"
+                    status_color = "#9e263a"
 
-            elif state == "finished":
-                status_text = "Finished"
-                status_color = "#FF5F5F"
+                    btn_text = "Inactive"
+                    btn_state = "disabled"
+                    btn_bg = "#FF5F5F"
+                    btn_command = lambda sid=session_id: self.controller.pause_session(sid)
 
-                btn_text = "Inactive"
-                btn_state = "disabled"
-                btn_bg = "#FF5F5F"
-                btn_command = lambda sid=session_id: self.controller.pause_session(sid)
+                elif state == "finished":
+                    status_text = "Finished"
+                    status_color = "#FF5F5F"
 
-            row_frame = tk.Frame(self.sessions_frame, bg="#F5F9FC", pady=3)
-            row_frame.pack(fill="x", padx=5, pady=5)
+                    btn_text = "Inactive"
+                    btn_state = "disabled"
+                    btn_bg = "#FF5F5F"
+                    btn_command = lambda sid=session_id: self.controller.pause_session(sid)
 
-            tk.Label(row_frame, text=f"ID: {session_id}", font=("Arial", 11, "bold"),
-                     bg="#F5F9FC", fg="#243B4A", width=10, anchor="w").pack(side="left", padx=3)
+                row_frame = tk.Frame(self.sessions_frame, bg="#F5F9FC", pady=3)
+                row_frame.pack(fill="x", padx=5, pady=5)
 
-            tk.Label(row_frame, text=f"Players: {player_count}/2", font=("Arial", 10),
-                     bg="#F5F9FC", fg="#555", width=12).pack(side="left", padx=3)
+                tk.Label(row_frame, text=f"ID: {session_id}", font=("Arial", 11, "bold"),
+                         bg="#F5F9FC", fg="#243B4A", width=10, anchor="w").pack(side="left", padx=3)
 
-            tk.Label(row_frame, text=status_text, font=("Arial", 10, "italic"),
-                     bg="#F5F9FC", fg=status_color, width=10).pack(side="left", padx=3)
+                tk.Label(row_frame, text=f"Players: {player_count}/2", font=("Arial", 10),
+                         bg="#F5F9FC", fg="#555", width=12).pack(side="left", padx=3)
 
-            btn_frame = tk.Frame(row_frame, bg="#F5F9FC")
-            btn_frame.pack(side="right")
+                tk.Label(row_frame, text=status_text, font=("Arial", 10, "italic"),
+                         bg="#F5F9FC", fg=status_color, width=10).pack(side="left", padx=3)
 
-            tk.Button(
-                btn_frame,
-                text=btn_text,
-                bg=btn_bg,
-                state=btn_state,
-                fg="white",
-                activebackground=btn_active,
-                width=8,
-                font=("Arial", 9, "bold"),
-                command=btn_command
-            ).pack(side="right", padx=3)
+                btn_frame = tk.Frame(row_frame, bg="#F5F9FC")
+                btn_frame.pack(side="right")
 
-            tk.Button(
-                btn_frame,
-                text="Details",
-                bg="#D0E4F0",
-                activebackground="#BFDCEB",
-                width=8,
-                font=("Arial", 9),
-                command=lambda sid=session_id: self.controller.show_details(sid)
-            ).pack(side="right", padx=3)
+                tk.Button(
+                    btn_frame,
+                    text=btn_text,
+                    bg=btn_bg,
+                    state=btn_state,
+                    fg="white",
+                    activebackground=btn_active,
+                    width=8,
+                    font=("Arial", 9, "bold"),
+                    command=btn_command
+                ).pack(side="right", padx=3)
+
+                tk.Button(
+                    btn_frame,
+                    text="Details",
+                    bg="#D0E4F0",
+                    activebackground="#BFDCEB",
+                    width=8,
+                    font=("Arial", 9),
+                    command=lambda sid=session_id: self.controller.show_details(sid)
+                ).pack(side="right", padx=3)
+
+        except tk.TclError:
+            print("View: Update attempt failed")
 
 
     @staticmethod

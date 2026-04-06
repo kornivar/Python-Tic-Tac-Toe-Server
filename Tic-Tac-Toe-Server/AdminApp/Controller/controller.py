@@ -20,6 +20,7 @@ class Controller:
         self.view = View(self, self.root)
 
         self.flag = False
+        self.is_authenticated = False
         self.current_sessions = {}
         self.banned_users = []
         self.search_query = ""
@@ -42,13 +43,13 @@ class Controller:
                 self.current_sessions = p_data.get("sessions", {})
                 self.banned_users = p_data.get("banned_users", [])
 
-                if self.current_sessions is not None:
+                if self.current_sessions is not None and self.view.root.winfo_exists() and self.view.root.winfo_viewable():
                     self.view.update_sessions(self.current_sessions)
 
-                if self.blacklist_window.root.winfo_viewable():
+                if self.blacklist_window.root.winfo_exists() and self.blacklist_window.root.winfo_viewable():
                     self.blacklist_window.update_list(self.banned_users)
 
-                if self.details_window.root.winfo_viewable() and self.details_window.session_id:
+                if self.details_window.root.winfo_exists() and self.details_window.root.winfo_viewable() and self.details_window.session_id:
                     s_id = str(self.details_window.session_id)
 
                     if s_id in self.current_sessions:
@@ -72,18 +73,19 @@ class Controller:
 
 
     def check_verification(self, result: bool, action: str) -> None:
-        if result and action == "login":
-            self.login_window.show_connection("Welcome!")
-            self.login_window.root.destroy()
-            self.view.start()
-            self.model.send_ready()
-            self.poll_queue()
+        if self.is_authenticated:
             return
 
-        elif not result:
-            self.login_window.show_verif_status("Wrong username or password.")
+        if result and action == "login":
+            self.is_authenticated = True
+            self.login_window.show_connection("Welcome!")
+            self.login_window.root.destroy()
 
-        self.view.root.after(200, self.check_verification)
+            self.view.start()
+            self.model.send_ready()
+            return
+        else:
+            self.login_window.show_verif_status("Wrong username or password.")
 
 
     def is_connected(self) -> None:
@@ -141,6 +143,7 @@ class Controller:
 
     def start(self):
         self.model.start()
+        self.poll_queue()
         self.login_window.start()
         self.is_connected()
         self.root.mainloop()

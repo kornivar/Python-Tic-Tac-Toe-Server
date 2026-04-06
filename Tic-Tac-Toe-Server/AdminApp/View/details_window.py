@@ -1,11 +1,11 @@
 import tkinter as tk
 
 class DetailsWindow:
-    def __init__(self, controller, root):
+    def __init__(self, controller, parent_root):
         self.controller = controller
-        self.root = root
+        self.root = parent_root
 
-        self.root = tk.Toplevel(root)
+        self.root = tk.Toplevel(parent_root)
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.root.title("Session Details")
 
@@ -79,28 +79,57 @@ class DetailsWindow:
         for p_id, p_data in players.items():
             self.create_player_row(p_id, p_data)
 
-
     def create_player_row(self, p_id, p_data):
-        p_row = tk.Frame(self.players_frame, bg="white", pady=5, padx=5, highlightbackground="#BFDCEB",
-                         highlightthickness=1)
+        p_row = tk.Frame(self.players_frame, bg="white", pady=5, padx=5,
+                         highlightbackground="#BFDCEB", highlightthickness=1)
         p_row.pack(fill="x", pady=2)
 
         name = p_data.get("username", "Unknown")
         is_banned = p_data.get("is_banned", False)
 
-        info_text = f"ID: {p_id} | Name: {name}"
-        lbl = tk.Label(p_row, text=info_text, bg="white", font=("Arial", 10))
-        lbl.pack(side="left", padx=5)
+        stats = {
+            "win_rate": p_data.get("win_rate", 0),
+            "games": p_data.get("games_played", 0),
+            "wins": p_data.get("wins_count", 0),
+            "joined": p_data.get("join_date", "Unknown")
+        }
 
-        btn_text = "Ban User"
-        btn_bg = "#FF5F5F"
+        tk.Label(p_row, text=f"ID: {p_id} | Name: {name}", bg="white", font=("Arial", 10)).pack(side="left", padx=5)
 
         ban_btn = tk.Button(
-            p_row, text=btn_text, bg=btn_bg, fg="white",
+            p_row, text="Ban User", bg="#FF5F5F", fg="white",
             font=("Arial", 8, "bold"), width=10,
-            command=lambda s = self.session_id, u=p_id, n = name, b=is_banned: self.controller.toggle_ban(s, u, n, not b)
+            command=lambda s=self.session_id, u=p_id, n=name, b=is_banned: self.controller.toggle_ban(s, u, n, not b)
         )
         ban_btn.pack(side="right", padx=5)
+
+        more_btn = tk.Button(
+            p_row, text="More", bg="#D0E4F0", fg="#243B4A",
+            font=("Arial", 8, "bold"), width=8,
+            command=lambda n=name, st=stats: self.show_user_stats(n, st)
+        )
+        more_btn.pack(side="right", padx=5)
+
+
+    def show_user_stats(self, username, stats):
+        stats_win = tk.Toplevel(self.root)
+        stats_win.title(f"Stats: {username}")
+        stats_win.geometry("250x200")
+        stats_win.configure(bg="#F5F9FC")
+
+        tk.Label(stats_win, text=f"User: {username}", font=("Arial", 12, "bold"), bg="#243B4A", fg="white",
+                 pady=5).pack(fill="x")
+
+        content = tk.Frame(stats_win, bg="#F5F9FC", padx=20, pady=10)
+        content.pack(fill="both", expand=True)
+
+        tk.Label(content, text=f"Games Played: {stats['games']}", bg="#F5F9FC").pack(anchor="w")
+        tk.Label(content, text=f"Wins: {stats['wins']}", bg="#F5F9FC").pack(anchor="w")
+        tk.Label(content, text=f"Win Rate: {stats['win_rate']}%", bg="#F5F9FC", font=("Arial", 10, "bold")).pack(
+            anchor="w")
+
+        date_str = stats['joined'].split('.')[0] if stats['joined'] else "N/A"
+        tk.Label(content, text=f"Registered:\n{date_str}", bg="#F5F9FC", fg="#555", justify="left").pack(anchor="w", pady=5)
 
 
     def hide_window(self):

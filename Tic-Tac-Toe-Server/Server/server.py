@@ -93,14 +93,31 @@ def send_banned_warning(conn) -> None:
         encrypted_packet = cipher.encrypt(packet_bytes)
         conn.sendall(encrypted_packet + b"\n")
 
-def login(conn_socket, username: str, password: str, role: str) -> bool:
+
+def send_duplicate_warning(conn) -> None:
+    global running
+    global cipher
+
+    if running:
+        packet = {
+            "type": "response",
+            "data": "duplicate"
+        }
+
+        packet_bytes = json.dumps(packet).encode('utf-8')
+        encrypted_packet = cipher.encrypt(packet_bytes)
+        conn.sendall(encrypted_packet + b"\n")
+
+
+def login(conn_socket, username: str, password: str, role: str) -> tuple[bool, dict]:
     if username in banned_users:
         print(f"Login denied for banned user: {username}")
         send_banned_warning(conn_socket)
-        # verification(conn_socket, False)
         time.sleep(0.1)
         conn_socket.close()
         return False
+    elif username.lower() == "admin":
+        send_duplicate_warning(conn_socket)
 
     db_conn = None
 
@@ -110,7 +127,11 @@ def login(conn_socket, username: str, password: str, role: str) -> bool:
         row = None
 
         if role == "user":
-            cursor.execute("SELECT password_hash, salt FROM Users WHERE username = ?", (username,))
+            cursor.execute("""
+                           SELECT password_hash, salt, win_rate, games_played, wins_count, join_date
+                           FROM Users
+                           WHERE username = ?
+                           """, (username,))
             row = cursor.fetchone()
         elif role == "admin":
             cursor.execute("SELECT password_hash, salt FROM Admins WHERE username = ?", (username,))
@@ -118,7 +139,7 @@ def login(conn_socket, username: str, password: str, role: str) -> bool:
 
         if not row:
             verification(conn_socket, False)
-            return False
+            return False, {}
 
         db_password_hash = row.password_hash
         db_salt = row.salt
@@ -128,15 +149,25 @@ def login(conn_socket, username: str, password: str, role: str) -> bool:
         current_hash = hashlib.sha256(salted_password).hexdigest()
 
         if db_password_hash == current_hash:
-            verification(conn_socket, True)
-            return True
+            if role == "user":
+                client_data = {
+                "win_rate": row.win_rate,
+                "games_played": row.games_played,
+                "wins_count": row.wins_count,
+                "join_date": row.join_date.strftime("%Y")
+                }
+                verification(conn_socket, True)
+                return True, client_data
+            else:
+                verification(conn_socket, True)
+                return True, {}
 
         verification(conn_socket, False)
-        return False
+        return False, {}
 
     except Exception as e:
         print(f"Database error during login: {e}")
-        return False
+        return False, {}
 
     finally:
         if db_conn:
@@ -151,29 +182,29 @@ def signup(conn_socket, username: str, password: str) -> bool:
         db_conn = get_db_connection()
         cursor = db_conn.cursor()
 
-        # Check if this user already exists
-        cursor.execute("SELECT username FROM Users WHERE username = ?", (username,))
-        if cursor.fetchone():
-            verification(conn_socket, False)
-            return False
-
-        # Add user
         cursor.execute(
             "INSERT INTO Users (username, password_hash, salt) VALUES (?, ?, ?)",
             (username, hashed, salt)
         )
 
-        # Commit changes to DB and send verification respond
         db_conn.commit()
         verification(conn_socket, True)
         return True
 
+    except pyodbc.IntegrityError:
+        print(f"Signup failed: Username '{username}' already exists.")
+        send_duplicate_warning(conn_socket)
+        if db_conn:
+            db_conn.rollback()
+        return False
+
     except Exception as e:
         print(f"Database error during signup: {e}")
         if db_conn:
-            db_conn.rollback()  # ROLLBACK changes
+            db_conn.rollback()
         verification(conn_socket, False)
         return False
+
     finally:
         if db_conn:
             db_conn.close()
@@ -323,11 +354,12 @@ def handle_admin(admin: Admin):
                     p_data = packet.get("data")
 
                     if p_type == "login":
-                        login_success = login(conn, p_data["username"], p_data["password"], "admin")
+                        login_success, _ = login(conn, p_data["username"], p_data["password"], "admin")
 
                         if login_success:
                             admin.is_authenticated = True
-                            session_data_sender.start()
+                            if not session_data_sender.is_alive():
+                                session_data_sender.start()
 
                     elif p_type == "admin_command":
                         s_id = p_data.get("session_id", None)
@@ -344,6 +376,9 @@ def handle_admin(admin: Admin):
                                 continue
 
                             session = sessions[s_id]
+
+                        if session is None:
+                                continue
 
                         if p_data["type"] == "session":
                             state_cmd = p_data["state"]
@@ -446,11 +481,15 @@ def handle_client(client: Client, session) -> None:
 
                     if p_type == "login":
 
-                        login_success = login(conn, p_data["username"], p_data["password"], "user")
+                        login_success, client_data = login(conn, p_data["username"], p_data["password"], "user")
 
                         if login_success:
                             client.is_authenticated = True
+                            client.win_rate = client_data["win_rate"]
                             client.username = p_data["username"]
+                            client.wins_count = client_data["wins_count"]
+                            client.games_played = client_data["games_played"]
+                            client.join_date = client_data["join_date"]
 
                     elif p_type == "signup":
 
@@ -487,6 +526,7 @@ def handle_client(client: Client, session) -> None:
                             session.ready_players.add(my_id)
 
                             if len(session.ready_players) == 2:
+                                client.games_played += 1
                                 session.state = "active"
                                 start_packet = {
                                     "type": "game_ready",
@@ -509,8 +549,14 @@ def handle_client(client: Client, session) -> None:
                         if my_id == session.current_turn and session.playing_field[row][col] == 0:
                             session.playing_field[row][col] = my_id
                             winner = session.check_winner()
-                            session.current_turn = 2 if session.current_turn == 1 else 1
 
+                            if winner is not None:
+                                if winner != "draw":
+                                    client.update_db_stats(CONN_STR, True)
+                                else:
+                                    client.update_db_stats(CONN_STR, False)
+
+                            session.current_turn = 2 if session.current_turn == 1 else 1
                             update_packet = {
                                 "type": "update",
                                 "data": {

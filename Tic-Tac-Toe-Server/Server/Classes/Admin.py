@@ -1,5 +1,7 @@
 import hashlib
 import json
+import time
+
 from cryptography.fernet import Fernet
 
 class Admin:
@@ -13,9 +15,10 @@ class Admin:
 
     def update_sessions(self, sessions, banned_users, cipher, stop_event):
         while not stop_event.is_set():
+            time.sleep(0.3)
             try:
                 serializable_sessions = {
-                    s_id: s_obj.to_dict() for s_id, s_obj in sessions.items()
+                    s_id: s_obj.to_dict() for s_id, s_obj in list(sessions.items())
                 }
 
                 full_data = {

@@ -115,6 +115,9 @@ class Controller:
             self.on_closing()
             return
 
+        elif result == "duplicate":
+            self.login_window.show_verif_status("There is already a user with that name!")
+
         elif result and action == "signup":
             self.login_window.show_connection("Welcome!")
             self.login_window.root.destroy()
