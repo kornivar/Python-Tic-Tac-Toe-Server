@@ -1,6 +1,5 @@
 import json
-
-from pip._internal.network import session
+import time
 
 
 class SessionData:
@@ -11,12 +10,15 @@ class SessionData:
         self.current_turn = 1
         self.state = "inactive"
         self.ready_players = set()
+        self.move_history = []
+        self.winner = None
 
     def to_dict(self):
         return {
             "session_id": self._session_id,
             "state": self.state,
-            "players": {p_id: p_obj.to_dict() for p_id, p_obj in self.players.items()}
+            "players": {p_id: p_obj.to_dict() for p_id, p_obj in self.players.items()},
+            "move_history": self.move_history
         }
 
     def check_winner(self):
@@ -42,6 +44,20 @@ class SessionData:
             return "draw"
 
         return None
+
+
+    def add_move(self, player_id: int, row: int, col: int, final_note = "") -> None:
+        move_entry = {
+            "player_id": player_id,
+            "row": row,
+            "col": col,
+            "time": time.strftime("%H:%M:%S"),
+        }
+
+        if final_note:
+            move_entry["system_msg"] = final_note
+
+        self.move_history.append(move_entry)
 
 
     def broadcast(self, encrypted_packet):

@@ -10,13 +10,14 @@ class DetailsWindow:
         self.root.title("Session Details")
 
         self.window_width = 450
-        self.window_height = 500
+        self.window_height = 600
         self.root.configure(background="#EAF4F9")
 
         self.players_frame = None
         self.status_label = None
         self.winner_label = None
         self.session_id = None
+        self.history_list = None
 
         self.root.withdraw()
 
@@ -53,6 +54,12 @@ class DetailsWindow:
         self.players_frame = tk.Frame(players_container, bg="#EAF4F9")
         self.players_frame.pack(fill="both", expand=True)
 
+        history_container = tk.LabelFrame(self.root, text=" Move History ", bg="#EAF4F9", padx=10, pady=10)
+        history_container.pack(fill="both", expand=True, padx=20, pady=5)
+
+        self.history_list = tk.Text(history_container, height=8, font=("Courier", 9), state="disabled")
+        self.history_list.pack(fill="both", expand=True)
+
 
     def update_info(self, s_data: dict):
         self.session_id = s_data.get("session_id")
@@ -78,6 +85,25 @@ class DetailsWindow:
 
         for p_id, p_data in players.items():
             self.create_player_row(p_id, p_data)
+
+        move_history = s_data.get("move_history", [])
+        self.history_list.config(state="normal")
+        self.history_list.delete("1.0", tk.END)
+
+        for m in move_history:
+            p_id_str = str(m['player_id'])
+            player_name = s_data["players"].get(p_id_str, {}).get("username", f"P{p_id_str}")
+
+            line = f"[{m['time']}] {player_name}: Row {m['row']}, Col {m['col']}\n"
+            self.history_list.insert(tk.END, line)
+
+            if "system_msg" in m:
+                sys_line = f"{m['system_msg']}\n"
+                self.history_list.insert(tk.END, sys_line)
+
+        self.history_list.see(tk.END)
+        self.history_list.config(state="disabled")
+
 
     def create_player_row(self, p_id, p_data):
         p_row = tk.Frame(self.players_frame, bg="white", pady=5, padx=5,

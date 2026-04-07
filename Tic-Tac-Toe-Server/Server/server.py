@@ -13,6 +13,7 @@ from Server.Classes.Client import Client
 from Server.Classes.SessionData import SessionData
 from Server.Classes.Admin import Admin
 
+
 def load_config(file_path: str) -> dict:
     with open(file_path, "r") as f:
         return json.load(f)
@@ -39,6 +40,7 @@ CONN_STR = (
 
 def get_db_connection():
     return pyodbc.connect(CONN_STR)
+
 
 def load_banned_users():
     db_conn = None
@@ -454,7 +456,6 @@ def handle_client(client: Client, session) -> None:
     buffer = b""
 
     print(f"[Session {session.session_id}] Handler started for Player {my_id}")
-
     try:
         while True:
             try:
@@ -549,13 +550,18 @@ def handle_client(client: Client, session) -> None:
                         if my_id == session.current_turn and session.playing_field[row][col] == 0:
                             session.playing_field[row][col] = my_id
                             winner = session.check_winner()
+                            final_note = ""
 
                             if winner is not None:
                                 if winner != "draw":
+                                    session.winner = client.id
+                                    final_note = f"--- WINNER: {client.username} ---"
                                     client.update_db_stats(CONN_STR, True)
                                 else:
+                                    final_note = "--- RESULT: DRAW ---"
                                     client.update_db_stats(CONN_STR, False)
 
+                            session.add_move(my_id, row, col, final_note)
                             session.current_turn = 2 if session.current_turn == 1 else 1
                             update_packet = {
                                 "type": "update",
