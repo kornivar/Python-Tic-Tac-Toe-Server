@@ -124,3 +124,73 @@ class TestModelNetworkCommands:
         model_instance.send_ban_unban_command(1, 2, "target_user", "ban")
 
         model_instance.client.sendall.assert_called_once_with(b"encrypted_ban\n")
+
+
+class TestModelStateAndLifecycle:
+    def test_is_connected(self, model_instance):
+        model_instance.connected = True
+        assert model_instance.is_connected() is True
+        model_instance.connected = False
+        assert model_instance.is_connected() is False
+
+    @patch('threading.Thread')
+    def test_start(self, mock_thread, model_instance):
+        model_instance.start()
+        assert model_instance.running is True
+        mock_thread.assert_called_once_with(target=model_instance.connect, daemon=True)
+
+    def test_stop(self, model_instance):
+        model_instance.client = MagicMock()
+        model_instance.running = True
+
+        model_instance.stop()
+
+        assert model_instance.running is False
+        model_instance.client.close.assert_called_once()
+
+    def test_stop_with_exception_handling(self, model_instance):
+        model_instance.client = MagicMock()
+        model_instance.client.close.side_effect = Exception("Socket error")
+        model_instance.running = True
+
+        model_instance.stop()
+        assert model_instance.running is False
+
+
+class TestModelConnectMethod:
+    @patch('socket.socket')
+    @patch('time.sleep', return_value=None)
+    @patch('threading.Thread')
+    def test_connect_success_first_attempt(self, mock_thread, mock_sleep, mock_socket, model_instance):
+        model_instance.running = True
+        mock_sock_instance = MagicMock()
+        mock_socket.return_value = mock_sock_instance
+
+        model_instance.connect()
+
+        assert model_instance.connected is True
+        assert model_instance.client == mock_sock_instance
+        mock_sock_instance.connect.assert_called_once_with((model_instance.ip, model_instance.port))
+        mock_thread.assert_called_once_with(target=model_instance.receive, daemon=True)
+
+    @patch('socket.socket')
+    @patch('time.sleep', return_value=None)
+    def test_connect_retry_on_exception(self, mock_sleep, mock_socket, model_instance):
+        model_instance.running = True
+
+        mock_sock_fail = MagicMock()
+        mock_sock_fail.connect.side_effect = ConnectionRefusedError
+        mock_sock_success = MagicMock()
+
+        mock_socket.side_effect = [mock_sock_fail, mock_sock_success]
+
+        def success_effect(address):
+            model_instance.running = False
+            return None
+
+        mock_sock_success.connect.side_effect = success_effect
+
+        model_instance.connect()
+
+        assert mock_sock_fail.close.called
+        mock_sleep.assert_called_once_with(1)
