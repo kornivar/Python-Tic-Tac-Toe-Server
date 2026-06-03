@@ -21,6 +21,7 @@ def model_instance(mock_dependencies):
     return Model(ip, port, queue, cipher)
 
 
+
 class TestModelInitialization:
     def test_init_state(self, model_instance, mock_dependencies):
         ip, port, queue, cipher = mock_dependencies
@@ -33,6 +34,7 @@ class TestModelInitialization:
         assert model_instance.connected is False
         assert model_instance._callback is None
         assert model_instance.client is None
+
 
 
 class TestModelStaticMethods:
@@ -49,6 +51,7 @@ class TestModelStaticMethods:
 
     def test_to_packet_invalid_type(self):
         assert Model.to_packet("data", "invalid_type") is None
+
 
 
 class TestModelNetworkCommands:
@@ -126,6 +129,7 @@ class TestModelNetworkCommands:
         model_instance.client.sendall.assert_called_once_with(b"encrypted_ban\n")
 
 
+
 class TestModelStateAndLifecycle:
     def test_is_connected(self, model_instance):
         model_instance.connected = True
@@ -155,6 +159,7 @@ class TestModelStateAndLifecycle:
 
         model_instance.stop()
         assert model_instance.running is False
+
 
 
 class TestModelConnectMethod:
@@ -194,3 +199,102 @@ class TestModelConnectMethod:
 
         assert mock_sock_fail.close.called
         mock_sleep.assert_called_once_with(1)
+
+
+
+class TestModelReceiveMethod:
+    def test_receive_empty_data_terminates(self, model_instance):
+        model_instance.running = True
+        model_instance.client = MagicMock()
+        model_instance.client.recv.return_value = b""
+
+        model_instance.receive()
+
+        assert model_instance.running is False
+        model_instance.client.close.assert_called_once()
+
+    def test_receive_exception_terminates(self, model_instance):
+        model_instance.running = True
+        model_instance.client = MagicMock()
+        model_instance.client.recv.side_effect = OSError("Read error")
+
+        model_instance.receive()
+
+        assert model_instance.running is False
+        model_instance.client.close.assert_called_once()
+
+    def test_receive_packet_identify_request(self, model_instance):
+        model_instance.running = True
+        model_instance.client = MagicMock()
+
+        packet = json.dumps({"type": "identify_request", "data": {}}).encode('utf-8')
+        model_instance.cipher.decrypt.return_value = packet
+
+        def recv_effect(bufsize):
+            if model_instance.running and model_instance.client.recv.call_count == 1:
+                return b"encrypted_payload\n"
+            model_instance.running = False
+            return b""
+
+        model_instance.client.recv.side_effect = recv_effect
+
+        with patch.object(model_instance, 'identify') as mock_identify:
+            model_instance.receive()
+            mock_identify.assert_called_once()
+
+    def test_receive_packet_update(self, model_instance):
+        model_instance.running = True
+        model_instance.client = MagicMock()
+
+        packet = json.dumps({"type": "update", "data": "update_payload"}).encode('utf-8')
+        model_instance.cipher.decrypt.return_value = packet
+
+        def recv_effect(bufsize):
+            if model_instance.client.recv.call_count == 1:
+                return b"data\n"
+            return b""
+
+        model_instance.client.recv.side_effect = recv_effect
+
+        model_instance.receive()
+
+        model_instance.queue.put.assert_called_once_with({"type": "update", "data": "update_payload"})
+
+    def test_receive_packet_error(self, model_instance):
+        model_instance.running = True
+        model_instance.client = MagicMock()
+
+        packet = json.dumps({"type": "error", "message": "critical_failure"}).encode('utf-8')
+        model_instance.cipher.decrypt.return_value = packet
+
+        def recv_effect(bufsize):
+            if model_instance.client.recv.call_count == 1:
+                return b"data\n"
+            return b""
+
+        model_instance.client.recv.side_effect = recv_effect
+
+        model_instance.receive()
+
+        model_instance.queue.put.assert_called_once_with({"type": "error", "message": "critical_failure"})
+
+    def test_receive_packet_response(self, model_instance):
+        model_instance.running = True
+        model_instance.client = MagicMock()
+
+        packet = json.dumps({"type": "response", "data": "response_payload"}).encode('utf-8')
+        model_instance.cipher.decrypt.return_value = packet
+
+        def recv_effect(bufsize):
+            if model_instance.client.recv.call_count == 1:
+                return b"data\n"
+            return b""
+
+        model_instance.client.recv.side_effect = recv_effect
+
+        mock_callback = MagicMock()
+        model_instance._callback = mock_callback
+
+        model_instance.receive()
+
+        mock_callback.assert_called_once_with("response_payload")
