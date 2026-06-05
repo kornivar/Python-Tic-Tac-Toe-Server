@@ -117,3 +117,42 @@ class TestControllerQueuePolling:
         with patch('builtins.print') as mock_print:
             controller_instance.poll_queue()
             mock_print.assert_any_call("Server Error: Database disconnected")
+
+
+
+class TestControllerVerification:
+    def test_verification_calls_model_with_callback(self, controller_instance):
+        controller_instance.verification("admin", "secret", "login")
+
+        controller_instance.model.verification.assert_called_once()
+        args, kwargs = controller_instance.model.verification.call_args
+        assert args[0] == "admin"
+        assert args[1] == "secret"
+        assert args[2] == "login"
+        assert callable(kwargs["callback"])
+
+    def test_check_verification_success(self, controller_instance):
+        controller_instance.is_authenticated = False
+
+        controller_instance.check_verification(True, "login")
+
+        assert controller_instance.is_authenticated is True
+        controller_instance.login_window.show_connection.assert_called_once_with("Welcome!")
+        controller_instance.login_window.root.destroy.assert_called_once()
+        controller_instance.view.start.assert_called_once()
+        controller_instance.model.send_ready.assert_called_once()
+
+    def test_check_verification_failure(self, controller_instance):
+        controller_instance.is_authenticated = False
+
+        controller_instance.check_verification(False, "login")
+
+        assert controller_instance.is_authenticated is False
+        controller_instance.login_window.show_verif_status.assert_called_once_with("Wrong username or password.")
+
+    def test_check_verification_already_authenticated(self, controller_instance):
+        controller_instance.is_authenticated = True
+
+        controller_instance.check_verification(True, "login")
+
+        controller_instance.login_window.show_connection.assert_not_called()
