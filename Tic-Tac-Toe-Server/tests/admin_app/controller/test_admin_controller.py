@@ -156,3 +156,25 @@ class TestControllerVerification:
         controller_instance.check_verification(True, "login")
 
         controller_instance.login_window.show_connection.assert_not_called()
+
+
+
+class TestControllerConnectionHandling:
+    def test_is_connected_true(self, controller_instance):
+        controller_instance.model.is_connected.return_value = True
+
+        controller_instance.is_connected()
+
+        controller_instance.login_window.show_connection.assert_called_once_with("connected to server")
+        controller_instance.login_window.enable_button.assert_called_once()
+
+    def test_is_connected_false_first_trigger(self, controller_instance):
+        controller_instance.model.is_connected.return_value = False
+        controller_instance.flag = False
+
+        controller_instance.is_connected()
+
+        assert controller_instance.flag is True
+        controller_instance.login_window.disable_button.assert_called_once()
+        controller_instance.login_window.show_connection.assert_called_once_with("not connected")
+        controller_instance.view.root.after.assert_called_once_with(1000, controller_instance.is_connected)
