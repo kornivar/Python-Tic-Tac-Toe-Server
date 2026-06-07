@@ -178,3 +178,48 @@ class TestControllerConnectionHandling:
         controller_instance.login_window.disable_button.assert_called_once()
         controller_instance.login_window.show_connection.assert_called_once_with("not connected")
         controller_instance.view.root.after.assert_called_once_with(1000, controller_instance.is_connected)
+
+
+
+class TestControllerSessionManagement:
+    def test_pause_session(self, controller_instance):
+        controller_instance.pause_session(15)
+        controller_instance.model.pause_session.assert_called_once_with(15)
+
+    def test_resume_session(self, controller_instance):
+        controller_instance.resume_session(15)
+        controller_instance.model.resume_session.assert_called_once_with(15)
+
+    def test_show_blacklist(self, controller_instance):
+        controller_instance.banned_users = ["user1", "user2"]
+        controller_instance.show_blacklist()
+
+        controller_instance.blacklist_window.update_list.assert_called_once_with(["user1", "user2"])
+        controller_instance.blacklist_window.show.assert_called_once()
+
+    @pytest.mark.parametrize("session_id, user_id, username, should_ban, expected_action", [
+        (10, 5, "cheater", True, "ban"),
+        (None, None, "toxic_user", False, "unban")
+    ])
+    def test_toggle_ban(self, controller_instance, session_id, user_id, username, should_ban, expected_action):
+        controller_instance.toggle_ban(session_id, user_id, username, should_ban)
+
+        controller_instance.model.send_ban_unban_command.assert_called_once_with(
+            session_id=session_id,
+            user_id=user_id,
+            username=username,
+            action=expected_action
+        )
+
+    def test_show_details_when_session_exists(self, controller_instance):
+        session_data = {"user": "target"}
+        controller_instance.current_sessions = {"101": session_data}
+
+        controller_instance.show_details(101)
+
+        controller_instance.details_window.start.assert_called_once_with(session_data)
+
+    def test_show_details_when_session_missing(self, controller_instance):
+        controller_instance.current_sessions = {}
+        controller_instance.show_details(404)
+        controller_instance.details_window.start.assert_not_called()
