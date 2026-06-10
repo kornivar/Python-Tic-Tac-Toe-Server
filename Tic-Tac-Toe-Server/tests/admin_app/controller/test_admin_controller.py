@@ -223,3 +223,51 @@ class TestControllerSessionManagement:
         controller_instance.current_sessions = {}
         controller_instance.show_details(404)
         controller_instance.details_window.start.assert_not_called()
+
+
+
+class TestControllerSearchLogic:
+    def test_search_sessions(self, controller_instance):
+        controller_instance.current_sessions = {"1": "data"}
+
+        controller_instance.search_sessions("  User123  ", "Username")
+
+        assert controller_instance.search_query == "user123"
+        assert controller_instance.search_category == "Username"
+        controller_instance.view.update_sessions.assert_called_once_with({"1": "data"}, "user123", "Username")
+
+    def test_reset_search(self, controller_instance):
+        controller_instance.current_sessions = {"1": "data"}
+        controller_instance.search_category = "ID"
+        controller_instance.view.search_entry = MagicMock()
+
+        controller_instance.reset_search()
+
+        assert controller_instance.search_query == ""
+        controller_instance.view.search_entry.delete.assert_called_once_with(0, tk.END)
+        controller_instance.view.update_sessions.assert_called_once_with({"1": "data"}, "", "ID")
+
+
+
+class TestControllerLifecycle:
+    def test_start_initializes_loops(self, controller_instance):
+        with patch.object(controller_instance, 'poll_queue') as mock_poll, \
+                patch.object(controller_instance, 'is_connected') as mock_conn:
+            controller_instance.start()
+
+            controller_instance.model.start.assert_called_once()
+            mock_poll.assert_called_once()
+            controller_instance.login_window.start.assert_called_once()
+            mock_conn.assert_called_once()
+            controller_instance.root.mainloop.assert_called_once()
+
+    @patch('os._exit')
+    def test_on_closing(self, mock_os_exit, controller_instance):
+        controller_instance.model.socket = MagicMock()
+
+        controller_instance.on_closing()
+
+        controller_instance.model.stop.assert_called_once()
+        controller_instance.model.socket.close.assert_called_once()
+        controller_instance.root.destroy.assert_called_once()
+        mock_os_exit.assert_called_once_with(0)
