@@ -22,6 +22,8 @@ def model_instance(mock_dependencies):
     ip, port, queue, cipher = mock_dependencies
     return Model(ip, port, queue, cipher)
 
+
+
 class TestClientModelInitialization:
     def test_initial_state(self, model_instance, mock_dependencies):
         ip, port, queue, cipher = mock_dependencies
@@ -35,6 +37,8 @@ class TestClientModelInitialization:
         assert model_instance.connected is False
         assert model_instance._callback is None
         assert model_instance.client is None
+
+
 
 class TestClientModelStaticMethods:
     @pytest.mark.parametrize("d_type, data, expected_type", [
@@ -51,3 +55,55 @@ class TestClientModelStaticMethods:
 
     def test_to_packet_invalid_type(self):
         assert Model.to_packet({"data": 1}, "unknown_type") is None
+
+
+
+class TestClientModelNetworkCommands:
+    def test_send_move_when_running(self, model_instance):
+        model_instance.running = True
+        model_instance.client = MagicMock()
+        model_instance.cipher.encrypt.return_value = b"encrypted_move"
+
+        model_instance.send_move(1, 2)
+
+        model_instance.cipher.encrypt.assert_called_once()
+        model_instance.client.sendall.assert_called_once_with(b"encrypted_move\n")
+
+    def test_send_move_when_not_running(self, model_instance):
+        model_instance.running = False
+        model_instance.client = MagicMock()
+
+        model_instance.send_move(1, 2)
+        model_instance.client.sendall.assert_not_called()
+
+    @pytest.mark.parametrize("action, expected_type", [
+        ("login", "login"),
+        ("signup", "signup")
+    ])
+    def test_verification_actions(self, model_instance, action, expected_type):
+        model_instance.client = MagicMock()
+        model_instance.cipher.encrypt.return_value = b"encrypted_auth"
+        callback = MagicMock()
+
+        model_instance.verification("player1", "pass123", action, callback)
+
+        assert model_instance._callback == callback
+        assert model_instance.username == "player1"
+        model_instance.client.sendall.assert_called_once_with(b"encrypted_auth\n")
+
+    def test_send_ready(self, model_instance):
+        model_instance.running = True
+        model_instance.client = MagicMock()
+        model_instance.cipher.encrypt.return_value = b"encrypted_ready"
+
+        model_instance.send_ready(need_avatar=True)
+
+        model_instance.client.sendall.assert_called_once_with(b"encrypted_ready\n")
+
+    def test_identify(self, model_instance):
+        model_instance.client = MagicMock()
+        model_instance.cipher.encrypt.return_value = b"encrypted_identify"
+
+        model_instance.identify()
+
+        model_instance.client.sendall.assert_called_once_with(b"encrypted_identify\n")
